@@ -1,15 +1,10 @@
 <?php
 
+use CRM_AuthNetEcheck_ExtensionUtil as E;
+
 class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment_AuthorizeNet {
 
-  /**
-   * We only need one instance of this object. So we use the singleton
-   * pattern and cache the instance in this variable
-   *
-   * @var object
-   * @static
-   */
-  static private $_singleton = NULL;
+  use CRM_Core_Payment_AuthNetEcheckTrait;
 
   /**
    * Constructor
@@ -19,32 +14,11 @@ class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment_AuthorizeNet {
    * @return void
    */
   function __construct($mode, &$paymentProcessor) {
-      parent::__construct($mode, $paymentProcessor);
-      $this->_setParam('paymentType', 'ECHECK');
-      $this->_processorName = ts('Authorize.net eCheck.net');
+    parent::__construct($mode, $paymentProcessor);
+    $this->_setParam('paymentType', 'ECHECK');
+    $this->_processorName = E::ts('Authorize.net eCheck.net');
   }
 
-  /**
-   * singleton function used to manage this object
-   *
-   * @param string $mode the mode of operation: live or test
-   *
-   * @param object $paymentProcessor
-   * @param CRM_Core_Form $paymentForm
-   * @param bool $force
-   *
-   * @return object
-   * @static
-   */
-  static function &singleton($mode, &$paymentProcessor, &$paymentForm = NULL, $force = FALSE) {
-      $processorName = $paymentProcessor['name'];
-      if (!isset(self::$_singleton[$processorName]) || self::$_singleton[$processorName] === NULL) {
-        self::$_singleton[$processorName] = new CRM_Core_Payment_AuthNetEcheck($mode, $paymentProcessor);
-      }
-
-      return self::$_singleton[$processorName];
-  }
-  
   /**
    * Should the first payment date be configurable when setting up back office recurring payments.
    * In the case of Authorize.net this is an option
@@ -71,18 +45,153 @@ class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment_AuthorizeNet {
   }
 
   /**
+   * We can use the processor on the backend
+   * @return bool
+   */
+  public function supportsBackOffice() {
+    return TRUE;
+  }
+
+  /**
+   * We can edit recurring contributions
+   * @return bool
+   */
+  public function supportsEditRecurringContribution() {
+    return FALSE;
+  }
+
+  /**
+   * Override CRM_Core_Payment function
+   *
+   * @return string
+   */
+  public function getPaymentTypeName() {
+    return 'direct_debit';
+  }
+
+  /**
+   * Override CRM_Core_Payment function
+   *
+   * @return string
+   */
+  public function getPaymentTypeLabel() {
+    return 'Authorize.net eCheck.Net';
+  }
+
+  /**
+   * Override CRM_Core_Payment function
+   *
+   * @return array
+   */
+  public function getPaymentFormFields() {
+    return [
+      'account_holder',
+      'bank_account_number',
+      'bank_identification_number',
+      'bank_name',
+    ];
+  }
+
+  /**
+   * Return an array of all the details about the fields potentially required for payment fields.
+   *
+   * Only those determined by getPaymentFormFields will actually be assigned to the form
+   *
+   * @return array
+   *   field metadata
+   */
+  public function getPaymentFormFieldsMetadata() {
+    return [
+      'account_holder' => [
+        'htmlType' => 'text',
+        'name' => 'account_holder',
+        'title' => E::ts('Name on Account'),
+        'attributes' => [
+          'size' => 20,
+          'maxlength' => 34,
+          'autocomplete' => 'on',
+        ],
+        'is_required' => TRUE,
+      ],
+      //e.g. IBAN can have maxlength of 34 digits
+      'bank_account_number' => [
+        'htmlType' => 'text',
+        'name' => 'bank_account_number',
+        'title' => E::ts('Account Number'),
+        'attributes' => [
+          'size' => 20,
+          'maxlength' => 34,
+          'autocomplete' => 'off',
+        ],
+        'rules' => [
+          [
+            'rule_message' => E::ts('Please enter a valid Bank Identification Number (value must not contain punctuation characters).'),
+            'rule_name' => 'nopunctuation',
+            'rule_parameters' => NULL,
+          ],
+        ],
+        'is_required' => TRUE,
+      ],
+      //e.g. SWIFT-BIC can have maxlength of 11 digits
+      'bank_identification_number' => [
+        'htmlType' => 'text',
+        'name' => 'bank_identification_number',
+        'title' => E::ts('Routing Number'),
+        'attributes' => [
+          'size' => 20,
+          'maxlength' => 11,
+          'autocomplete' => 'off',
+        ],
+        'is_required' => TRUE,
+        'rules' => [
+          [
+            'rule_message' => E::ts('Please enter a valid Bank Identification Number (value must not contain punctuation characters).'),
+            'rule_name' => 'nopunctuation',
+            'rule_parameters' => NULL,
+          ],
+        ],
+      ],
+      'bank_name' => [
+        'htmlType' => 'text',
+        'name' => 'bank_name',
+        'title' => E::ts('Bank Name'),
+        'attributes' => [
+          'size' => 20,
+          'maxlength' => 64,
+          'autocomplete' => 'off',
+        ],
+        'is_required' => TRUE,
+      ],
+    ];
+  }
+
+  /**
    * Submit a payment using Advanced Integration Method.
+   *
+   * Sets appropriate parameters and calls Smart Debit API to create a payment
+   *
+   * Payment processors should set payment_status_id.
    *
    * @param array $params
    *   Assoc array of input parameters for this transaction.
    *
+   * @param string $component
+   *
    * @return array
-   *   the result in a nice formatted array (or an error object)
+   *   Result array
+   *
+   * @throws \CiviCRM_API3_Exception
+   * @throws \Civi\Payment\Exception\PaymentProcessorException
    */
-  public function doDirectPayment(&$params) {
+  public function doPayment(&$params, $component = 'contribute') {
     if (!defined('CURLOPT_SSLCERT')) {
-      return self::error(9001, 'Authorize.Net requires curl with SSL support');
+      Throw new \Civi\Payment\Exception\PaymentProcessorException('Authorize.Net requires curl with SSL support');
     }
+
+    // Set default contribution status
+    $params['contribution_status_id'] = CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'contribution_status_id', 'Pending');
+
+    $params['error_url'] = self::getErrorUrl($params);
 
     /*
      * recurpayment function does not compile an array & then process it -
@@ -91,20 +200,14 @@ class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment_AuthorizeNet {
      */
     $newParams = $params;
     if (!empty($params['is_recur']) && !empty($params['contributionRecurID'])) {
-      CRM_Utils_Hook::alterPaymentProcessorParams($this,
-        $params,
-        $newParams
-      );
+      CRM_Utils_Hook::alterPaymentProcessorParams($this, $params, $newParams);
     }
     foreach ($newParams as $field => $value) {
       $this->_setParam($field, $value);
     }
 
     if (!empty($params['is_recur']) && !empty($params['contributionRecurID'])) {
-      $result = $this->doRecurPayment();
-      if (is_a($result, 'CRM_Core_Error')) {
-        return $result;
-      }
+      $this->doRecurPayment();
       return $params;
     }
 
@@ -113,10 +216,7 @@ class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment_AuthorizeNet {
 
     // Set up our call for hook_civicrm_paymentProcessor,
     // since we now have our parameters as assigned for the AIM back end.
-    CRM_Utils_Hook::alterPaymentProcessorParams($this,
-      $params,
-      $authorizeNetFields
-    );
+    CRM_Utils_Hook::alterPaymentProcessorParams($this, $params, $authorizeNetFields);
 
     foreach ($authorizeNetFields as $field => $value) {
       // CRM-7419, since double quote is used as enclosure while doing csv parsing
@@ -126,51 +226,53 @@ class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment_AuthorizeNet {
 
     // Authorize.Net will not refuse duplicates, so we should check if the user already submitted this transaction
     if ($this->checkDupe($authorizeNetFields['x_invoice_num'], CRM_Utils_Array::value('contributionID', $params))) {
-      return self::error(9004, 'It appears that this transaction is a duplicate.  Have you already submitted the form once?  If so there may have been a connection problem.  Check your email for a receipt from Authorize.net.  If you do not receive a receipt within 2 hours you can try your transaction again.  If you continue to have problems please contact the site administrator.');
+      self::handleError(
+        9004,
+        E::ts('It appears that this transaction is a duplicate.  Have you already submitted the form once?  If so there may have been a connection problem.  Check your email for a receipt from Authorize.net.  If you do not receive a receipt within 2 hours you can try your transaction again.  If you continue to have problems please contact the site administrator.'),
+        $params['error_url']
+      );
     }
 
-    $submit = curl_init($this->_paymentProcessor['url_site']);
+    $curlSession = curl_init($this->_paymentProcessor['url_site']);
 
-    if (!$submit) {
-      return self::error(9002, 'Could not initiate connection to payment gateway');
+    if (!$curlSession) {
+      self::handleError(9002, E::ts('Could not initiate connection to payment gateway'), $params['error_url']);
     }
 
-    curl_setopt($submit, CURLOPT_POST, TRUE);
-    curl_setopt($submit, CURLOPT_RETURNTRANSFER, TRUE);
-    curl_setopt($submit, CURLOPT_POSTFIELDS, implode('&', $postFields));
-    curl_setopt($submit, CURLOPT_SSL_VERIFYPEER, Civi::settings()->get('verifySSL'));
+    $options = [
+      CURLOPT_POST => TRUE,
+      CURLOPT_RETURNTRANSFER => TRUE,
+      CURLOPT_POSTFIELDS => implode('&', $postFields),
+      CURLOPT_SSL_VERIFYHOST => Civi::settings()->get('verifySSL') ? 2 : 0,
+      CURLOPT_SSL_VERIFYPEER => Civi::settings()->get('verifySSL'),
+    ];
+    curl_setopt_array($curlSession, $options);
 
-    $response = curl_exec($submit);
-    //print_r($response);
+    $response = curl_exec($curlSession);
 
     if (!$response) {
-      return self::error(curl_errno($submit), curl_error($submit));
+      self::handleError(curl_errno($curlSession), curl_error($curlSession), $params['error_url']);
     }
 
-    curl_close($submit);
+    curl_close($curlSession);
 
     $response_fields = $this->explode_csv($response);
-    // check gateway MD5 response
-    if (!$this->checkMD5($response_fields[37], $response_fields[6], $response_fields[9])) {
-      return self::error(9003, 'MD5 Verification failed');
-    }
+    // FIXME: MD5 responses are deprecated in favour of SHA-512 (https://support.authorize.net/s/article/What-is-the-MD5-Hash-Security-feature-and-how-does-it-work)
+    /**if (!$this->checkMD5($response_fields[37], $response_fields[6], $response_fields[9])) {
+      self::handleError(9003, 'MD5 Verification failed', $params['error_url']);
+    }*/
 
     // check for application errors
-    // TODO:
-    // AVS, CVV2, CAVV, and other verification results
-    $contributionStatus = CRM_Contribute_PseudoConstant::contributionStatus(NULL, 'name');
+    // TODO: AVS, CVV2, CAVV, and other verification results
     switch ($response_fields[0]) {
-      case self::AUTH_REVIEW :
-        $params['payment_status_id'] = array_search('Pending', $contributionStatus);
+      case self::AUTH_REVIEW:
+        // We've set default to "Pending" at the start of doPayment
         break;
 
-      case self::AUTH_ERROR :
-        $params['payment_status_id'] = array_search('Failed', $contributionStatus);
-        break;
-
-      case self::AUTH_DECLINED :
+      case self::AUTH_ERROR:
+      case self::AUTH_DECLINED:
         $errormsg = $response_fields[2] . ' ' . $response_fields[3];
-        return self::error($response_fields[1], $errormsg);
+        self::handleError($response_fields[1], $errormsg, $params['error_url']);
 
       default:
         // Success
@@ -186,21 +288,34 @@ class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment_AuthorizeNet {
           $trxn_id = strval(CRM_Core_DAO::singleValueQuery($query, $p));
           $trxn_id = str_replace('test', '', $trxn_id);
           $trxn_id = intval($trxn_id) + 1;
-          $params['trxn_id'] = sprintf('test%08d', $trxn_id);
+          $contributionParams['trxn_id'] = sprintf('test%08d', $trxn_id);
         }
         else {
-          $params['trxn_id'] = $response_fields[6];
+          $contributionParams['trxn_id'] = $response_fields[6];
         }
-        $params['gross_amount'] = $response_fields[9];
+        $contributionParams['gross_amount'] = $response_fields[9];
         break;
     }
+
     // TODO: include authorization code?
-		//print_r($params);exit;
+    if ($this->getContributionId($params)) {
+      $contributionParams['id'] = $this->getContributionId($params);
+      civicrm_api3('Contribution', 'create', $contributionParams);
+      unset($contributionParams['id']);
+    }
+    $params = array_merge($params, $contributionParams);
+
+    // We need to set this to ensure that contributions are set to the correct status
+    if (!empty($params['contribution_status_id'])) {
+      $params['payment_status_id'] = $params['contribution_status_id'];
+    }
     return $params;
   }
-    
+
   /**
    * Submit an Automated Recurring Billing subscription.
+   *
+   * @return bool
    */
   public function doRecurPayment() {
     $template = CRM_Core_Smarty::singleton();
@@ -225,18 +340,18 @@ class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment_AuthorizeNet {
     // interval cannot be less than 7 days or more than 1 year
     if ($intervalUnit == 'days') {
       if ($intervalLength < 7) {
-        return self::error(9001, 'Payment interval must be at least one week');
+        self::handleError(9001, 'Payment interval must be at least one week', $this->_getParam('error_url'));
       }
       elseif ($intervalLength > 365) {
-        return self::error(9001, 'Payment interval may not be longer than one year');
+        self::handleError(9001, 'Payment interval may not be longer than one year', $this->_getParam('error_url'));
       }
     }
     elseif ($intervalUnit == 'months') {
       if ($intervalLength < 1) {
-        return self::error(9001, 'Payment interval must be at least one week');
+        self::handleError(9001, 'Payment interval must be at least one week', $this->_getParam('error_url'));
       }
       elseif ($intervalLength > 12) {
-        return self::error(9001, 'Payment interval may not be longer than one year');
+        self::handleError(9001, 'Payment interval may not be longer than one year', $this->_getParam('error_url'));
       }
     }
 
@@ -303,28 +418,33 @@ class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment_AuthorizeNet {
     $arbXML = $template->fetch('CRM/Contribute/Form/Contribution/AuthorizeNetARB.tpl');
     // submit to authorize.net
 
-    $submit = curl_init($this->_paymentProcessor['url_recur']);
-    if (!$submit) {
-      return self::error(9002, 'Could not initiate connection to payment gateway');
+    $curlSession = curl_init($this->_paymentProcessor['url_recur']);
+    if (!$curlSession) {
+      self::handleError(9002, 'Could not initiate connection to payment gateway', $this->_getParam('error_url'));
     }
-    curl_setopt($submit, CURLOPT_RETURNTRANSFER, 1);
-    curl_setopt($submit, CURLOPT_HTTPHEADER, array("Content-Type: text/xml"));
-    curl_setopt($submit, CURLOPT_HEADER, 1);
-    curl_setopt($submit, CURLOPT_POSTFIELDS, $arbXML);
-    curl_setopt($submit, CURLOPT_POST, 1);
-    curl_setopt($submit, CURLOPT_SSL_VERIFYPEER, Civi::settings()->get('verifySSL'));
 
-    $response = curl_exec($submit);
+    $options = [
+      CURLOPT_HEADER => TRUE, // return headers
+      CURLOPT_HTTPHEADER => ["Content-Type: text/xml"],
+      CURLOPT_POST => TRUE,
+      CURLOPT_RETURNTRANSFER => TRUE,
+      CURLOPT_POSTFIELDS => $arbXML,
+      CURLOPT_SSL_VERIFYHOST => Civi::settings()->get('verifySSL') ? 2 : 0,
+      CURLOPT_SSL_VERIFYPEER => Civi::settings()->get('verifySSL'),
+    ];
+    curl_setopt_array($curlSession, $options);
+
+    $response = curl_exec($curlSession);
 
     if (!$response) {
-      return self::error(curl_errno($submit), curl_error($submit));
+      self::handleError(curl_errno($curlSession), curl_error($curlSession), $this->_getParam('error_url'));
     }
 
-    curl_close($submit);
+    curl_close($curlSession);
     $responseFields = $this->_ParseArbReturn($response);
 
     if ($responseFields['resultCode'] == 'Error') {
-      return self::error($responseFields['code'], $responseFields['text']);
+      self::handleError($responseFields['code'], $responseFields['text'], $this->_getParam('error_url'));
     }
 
     // update recur processor_id with subscriptionId
@@ -336,8 +456,9 @@ class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment_AuthorizeNet {
     if (!empty($responseFields['subscriptionId'])) {
       $this->_setParam('subscriptionId', $responseFields['subscriptionId']);
     }
+    return TRUE;
   }
-  
+
   /**
    * @param string $message
    * @param array $params
@@ -345,6 +466,9 @@ class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment_AuthorizeNet {
    * @return bool|object
    */
   public function updateSubscriptionBillingInfo(&$message = '', $params = array()) {
+
+    $params['error_url'] = self::getErrorUrl($params);
+
     $template = CRM_Core_Smarty::singleton();
     $template->assign('subscriptionType', 'updateBilling');
 
@@ -373,7 +497,7 @@ class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment_AuthorizeNet {
     // submit to authorize.net
     $submit = curl_init($this->_paymentProcessor['url_recur']);
     if (!$submit) {
-      return self::error(9002, 'Could not initiate connection to payment gateway');
+      self::handleError(9002, 'Could not initiate connection to payment gateway', $params['error_url']);
     }
 
     curl_setopt($submit, CURLOPT_RETURNTRANSFER, 1);
@@ -386,7 +510,7 @@ class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment_AuthorizeNet {
     $response = curl_exec($submit);
 
     if (!$response) {
-      return self::error(curl_errno($submit), curl_error($submit));
+      self::handleError(curl_errno($submit), curl_error($submit), $params['error_url']);
     }
 
     curl_close($submit);
@@ -395,15 +519,16 @@ class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment_AuthorizeNet {
     $message = "{$responseFields['code']}: {$responseFields['text']}";
 
     if ($responseFields['resultCode'] == 'Error') {
-      return self::error($responseFields['code'], $responseFields['text']);
+      self::handleError($responseFields['code'], $responseFields['text'], $params['error_url']);
     }
     return TRUE;
   }
 
 
-  function _getAuthorizeNetFields() {    
-	  if (empty($amount)) {//CRM-9894 would this ever be the case??
-     $amount = $this->_getParam('amount');
+  function _getAuthorizeNetFields() {
+    if (empty($amount)) {
+      //CRM-9894 would this ever be the case??
+      $amount = $this->_getParam('amount');
     }
     $fields = array();
     $fields['x_login'] = $this->_getParam('apiLogin');
@@ -430,7 +555,7 @@ class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment_AuthorizeNet {
     $fields['x_bank_name'] = $this->_getParam('bank_name');
     $fields['x_bank_acct_name'] = $this->_getParam('account_holder');
     $fields['x_echeck_type'] = 'WEB';
-		$fields['x_email_customer'] = $this->_getParam('email');
+    $fields['x_email_customer'] = $this->_getParam('email');
 
     $fields['x_relay_response'] = 'FALSE';
 
@@ -442,8 +567,30 @@ class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment_AuthorizeNet {
     if ($this->_mode != 'live') {
       $fields['x_test_request'] = 'TRUE';
     }
-			//print_r($fields);
-      return $fields;
+    return $fields;
+  }
+
+  /**
+   * Handle an error and notify the user
+   *
+   * @param string $errorCode
+   * @param string $errorMessage
+   * @param string $bounceURL
+   *
+   * @return string $errorMessage
+   *     (or statusbounce if URL is specified)
+   */
+  public function handleError($errorCode = NULL, $errorMessage = NULL, $bounceURL = NULL) {
+    $errorCode = empty($errorCode) ? 9001 : $errorCode;
+    $errorMessage = empty($errorMessage) ? 'Unknown System Error.' : $errorMessage;
+    $message = 'Code: ' . $errorCode . ' Message: ' . $errorMessage;
+
+    Civi::log()->debug('AuthNetEcheck Payment Error: ' . $message);
+
+    if ($bounceURL) {
+      CRM_Core_Error::statusBounce($message, $bounceURL, E::ts('Error: %1', $this->getPaymentTypeLabel()));
+    }
+    return $errorMessage;
   }
 
 }
