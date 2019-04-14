@@ -1,6 +1,8 @@
 <?php
 
 require_once 'authnetecheck.civix.php';
+require_once __DIR__.'/vendor/autoload.php';
+
 use CRM_AuthNetEcheck_ExtensionUtil as E;
 
 /**

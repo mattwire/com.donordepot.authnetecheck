@@ -1,10 +1,15 @@
 <?php
 
 use CRM_AuthNetEcheck_ExtensionUtil as E;
+use net\authorize\api\contract\v1 as AnetAPI;
+use net\authorize\api\controller as AnetController;
+use net\authorize\api\constants\ANetEnvironment as AnetEnvironment;
 
-class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment_AuthorizeNet {
+class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment {
 
   use CRM_Core_Payment_AuthNetEcheckTrait;
+
+  protected $_params = [];
 
   /**
    * Constructor
@@ -14,9 +19,34 @@ class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment_AuthorizeNet {
    * @return void
    */
   function __construct($mode, &$paymentProcessor) {
-    parent::__construct($mode, $paymentProcessor);
-    $this->_setParam('paymentType', 'ECHECK');
+    $this->_paymentProcessor = $paymentProcessor;
     $this->_processorName = E::ts('Authorize.net eCheck.net');
+    $this->_setParam('apiLoginID', $paymentProcessor['user_name']);
+    $this->_setParam('transactionKey', $paymentProcessor['password']);
+  }
+
+  /**
+   * This function checks to see if we have the right config values.
+   *
+   * @return string
+   *   the error message if any
+   */
+  public function checkConfig() {
+    $error = [];
+    if (empty($this->_paymentProcessor['user_name'])) {
+      $error[] = E::ts('API Login ID is not set for this payment processor');
+    }
+
+    if (empty($this->_paymentProcessor['password'])) {
+      $error[] = E::ts('Transaction Key is not set for this payment processor');
+    }
+
+    if (!empty($error)) {
+      return implode('<p>', $error);
+    }
+    else {
+      return NULL;
+    }
   }
 
   /**
@@ -57,7 +87,7 @@ class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment_AuthorizeNet {
    * @return bool
    */
   public function supportsEditRecurringContribution() {
-    return FALSE;
+    return TRUE;
   }
 
   /**
@@ -113,14 +143,15 @@ class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment_AuthorizeNet {
         ],
         'is_required' => TRUE,
       ],
-      //e.g. IBAN can have maxlength of 34 digits
+      // US account number (max 17 digits)
       'bank_account_number' => [
         'htmlType' => 'text',
         'name' => 'bank_account_number',
         'title' => E::ts('Account Number'),
+        'description' => E::ts('Usually between 8 and 12 digits - identifies your individual account'),
         'attributes' => [
           'size' => 20,
-          'maxlength' => 34,
+          'maxlength' => 17,
           'autocomplete' => 'off',
         ],
         'rules' => [
@@ -132,14 +163,15 @@ class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment_AuthorizeNet {
         ],
         'is_required' => TRUE,
       ],
-      //e.g. SWIFT-BIC can have maxlength of 11 digits
+      //e.g. SWIFT-BIC can have maxlength of 11 digits eg. 211287748
       'bank_identification_number' => [
         'htmlType' => 'text',
         'name' => 'bank_identification_number',
         'title' => E::ts('Routing Number'),
+        'description' => E::ts('A 9-digit code (ABA number) that is used to identify where your bank account was opened (eg. 211287748)'),
         'attributes' => [
           'size' => 20,
-          'maxlength' => 11,
+          'maxlength' => 9,
           'autocomplete' => 'off',
         ],
         'is_required' => TRUE,
@@ -166,6 +198,24 @@ class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment_AuthorizeNet {
   }
 
   /**
+   * Set params
+   *
+   * @param array $params
+   *
+   * @return array
+   */
+  private function setParams($params) {
+    $params['error_url'] = self::getErrorUrl($params);
+    $params = $this->formatParamsForPaymentProcessor($params);
+    $newParams = $params;
+    CRM_Utils_Hook::alterPaymentProcessorParams($this, $params, $newParams);
+    foreach ($newParams as $field => $value) {
+      $this->_setParam($field, $value);
+    }
+    return $newParams;
+  }
+
+  /**
    * Submit a payment using Advanced Integration Method.
    *
    * Sets appropriate parameters and calls Smart Debit API to create a payment
@@ -181,51 +231,20 @@ class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment_AuthorizeNet {
    *   Result array
    *
    * @throws \CiviCRM_API3_Exception
-   * @throws \Civi\Payment\Exception\PaymentProcessorException
    */
   public function doPayment(&$params, $component = 'contribute') {
-    if (!defined('CURLOPT_SSLCERT')) {
-      Throw new \Civi\Payment\Exception\PaymentProcessorException('Authorize.Net requires curl with SSL support');
-    }
-
     // Set default contribution status
     $params['contribution_status_id'] = CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'contribution_status_id', 'Pending');
 
-    $params['error_url'] = self::getErrorUrl($params);
-
-    /*
-     * recurpayment function does not compile an array & then process it -
-     * - the tpl does the transformation so adding call to hook here
-     * & giving it a change to act on the params array
-     */
-    $newParams = $params;
-    if (!empty($params['is_recur']) && !empty($params['contributionRecurID'])) {
-      CRM_Utils_Hook::alterPaymentProcessorParams($this, $params, $newParams);
-    }
-    foreach ($newParams as $field => $value) {
-      $this->_setParam($field, $value);
-    }
+    $params = $this->setParams($params);
 
     if (!empty($params['is_recur']) && !empty($params['contributionRecurID'])) {
       $this->doRecurPayment();
       return $params;
     }
 
-    $postFields = array();
-    $authorizeNetFields = $this->_getAuthorizeNetFields();
-
-    // Set up our call for hook_civicrm_paymentProcessor,
-    // since we now have our parameters as assigned for the AIM back end.
-    CRM_Utils_Hook::alterPaymentProcessorParams($this, $params, $authorizeNetFields);
-
-    foreach ($authorizeNetFields as $field => $value) {
-      // CRM-7419, since double quote is used as enclosure while doing csv parsing
-      $value = ($field == 'x_description') ? str_replace('"', "'", $value) : $value;
-      $postFields[] = $field . '=' . urlencode($value);
-    }
-
     // Authorize.Net will not refuse duplicates, so we should check if the user already submitted this transaction
-    if ($this->checkDupe($authorizeNetFields['x_invoice_num'], CRM_Utils_Array::value('contributionID', $params))) {
+    if ($this->checkDupe($this->getInvoiceNumber(), CRM_Utils_Array::value('contributionID', $params))) {
       self::handleError(
         9004,
         E::ts('It appears that this transaction is a duplicate.  Have you already submitted the form once?  If so there may have been a connection problem.  Check your email for a receipt from Authorize.net.  If you do not receive a receipt within 2 hours you can try your transaction again.  If you continue to have problems please contact the site administrator.'),
@@ -233,71 +252,98 @@ class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment_AuthorizeNet {
       );
     }
 
-    $curlSession = curl_init($this->_paymentProcessor['url_site']);
+    $merchantAuthentication = $this->getMerchantAuthentication();
 
-    if (!$curlSession) {
-      self::handleError(9002, E::ts('Could not initiate connection to payment gateway'), $params['error_url']);
+    $bankAccount = $this->getBankAccount();
+    $paymentBank = new AnetAPI\PaymentType();
+    $paymentBank->setBankAccount($bankAccount);
+    $order = $this->getOrder();
+
+    $customerData = $this->getCustomerDataType();
+    $customerAddress = $this->getCustomerAddress();
+
+    //create a bank debit transaction
+    $transactionRequestType = new AnetAPI\TransactionRequestType();
+    $transactionRequestType->setTransactionType("authCaptureTransaction");
+    $transactionRequestType->setAmount($this->_getParam('amount'));
+    $transactionRequestType->setCurrencyCode($this->getCurrency($params));
+    $transactionRequestType->setPayment($paymentBank);
+    $transactionRequestType->setOrder($order);
+    $transactionRequestType->setBillTo($customerAddress);
+    $transactionRequestType->setCustomer($customerData);
+    $request = new AnetAPI\CreateTransactionRequest();
+    $request->setMerchantAuthentication($merchantAuthentication);
+    $request->setRefId($this->getInvoiceNumber());
+    $request->setTransactionRequest($transactionRequestType);
+    $controller = new AnetController\CreateTransactionController($request);
+    /** @var \net\authorize\api\contract\v1\CreateTransactionResponse $response */
+    $response = $controller->executeWithApiResponse($this->getIsTestMode() ? AnetEnvironment::SANDBOX : AnetEnvironment::PRODUCTION);
+
+    if (!$response || !$response->getMessages()) {
+      self::handleError(NULL, 'No response returned', $params['error_url']);
     }
 
-    $options = [
-      CURLOPT_POST => TRUE,
-      CURLOPT_RETURNTRANSFER => TRUE,
-      CURLOPT_POSTFIELDS => implode('&', $postFields),
-      CURLOPT_SSL_VERIFYHOST => Civi::settings()->get('verifySSL') ? 2 : 0,
-      CURLOPT_SSL_VERIFYPEER => Civi::settings()->get('verifySSL'),
-    ];
-    curl_setopt_array($curlSession, $options);
+    $tresponse = $response->getTransactionResponse();
 
-    $response = curl_exec($curlSession);
+    if ($response->getMessages()->getResultCode() == "Ok") {
+      if (!$tresponse) {
+        self::handleError(NULL, 'No transaction response returned', $params['error_url']);
+      }
 
-    if (!$response) {
-      self::handleError(curl_errno($curlSession), curl_error($curlSession), $params['error_url']);
-    }
+      $contributionParams['trxn_id'] = $tresponse->getTransId();
 
-    curl_close($curlSession);
+      switch ($tresponse->getResponseCode()) {
+        case CRM_AuthNet_Helper::RESPONSECODE_APPROVED:
+          $params['contribution_status_id'] = CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'contribution_status_id', 'Completed');
+          break;
 
-    $response_fields = $this->explode_csv($response);
-    // FIXME: MD5 responses are deprecated in favour of SHA-512 (https://support.authorize.net/s/article/What-is-the-MD5-Hash-Security-feature-and-how-does-it-work)
-    /**if (!$this->checkMD5($response_fields[37], $response_fields[6], $response_fields[9])) {
-      self::handleError(9003, 'MD5 Verification failed', $params['error_url']);
-    }*/
-
-    // check for application errors
-    // TODO: AVS, CVV2, CAVV, and other verification results
-    switch ($response_fields[0]) {
-      case self::AUTH_REVIEW:
-        // We've set default to "Pending" at the start of doPayment
-        break;
-
-      case self::AUTH_ERROR:
-      case self::AUTH_DECLINED:
-        $errormsg = $response_fields[2] . ' ' . $response_fields[3];
-        self::handleError($response_fields[1], $errormsg, $params['error_url']);
-
-      default:
-        // Success
-
-        // test mode always returns trxn_id = 0
-        // also live mode in CiviCRM with test mode set in
-        // Authorize.Net return $response_fields[6] = 0
-        // hence treat that also as test mode transaction
-        // fix for CRM-2566
-        if (($this->_mode == 'test') || $response_fields[6] == 0) {
-          $query = "SELECT MAX(trxn_id) FROM civicrm_contribution WHERE trxn_id RLIKE 'test[0-9]+'";
-          $p = array();
-          $trxn_id = strval(CRM_Core_DAO::singleValueQuery($query, $p));
-          $trxn_id = str_replace('test', '', $trxn_id);
-          $trxn_id = intval($trxn_id) + 1;
-          $contributionParams['trxn_id'] = sprintf('test%08d', $trxn_id);
+        case CRM_AuthNet_Helper::RESPONSECODE_DECLINED:
+        case CRM_AuthNet_Helper::RESPONSECODE_ERROR:
+        if ($tresponse->getErrors()) {
+          self::handleError($tresponse->getErrors()[0]->getErrorCode(), $tresponse->getErrors()[0]->getErrorText(), $params['error_url']);
         }
         else {
-          $contributionParams['trxn_id'] = $response_fields[6];
+          self::handleError(NULL, 'Transaction Failed', $params['error_url']);
         }
-        $contributionParams['gross_amount'] = $response_fields[9];
-        break;
+        $params['contribution_status_id'] = CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'contribution_status_id', 'Failed');
+          break;
+
+        case CRM_AuthNet_Helper::RESPONSECODE_REVIEW:
+          // Keep it in pending state
+          break;
+
+      }
+    }
+    else {
+      // resultCode !== 'Ok'
+      $errorCode = NULL;
+      if ($tresponse && $tresponse->getErrors()) {
+        foreach ($tresponse->getErrors() as $tError) {
+          $errorCode = $tError->getErrorCode();
+          switch ($errorCode) {
+            case '39':
+              $errorMessages[] = $errorCode . ': ' . $tError->getErrorText() . ' (' . $this->getCurrency($params) . ')';
+              break;
+
+            default:
+              $errorMessages[] = $errorCode . ': ' . $tError->getErrorText();
+          }
+        }
+        $errorMessage = implode(', ', $errorMessages);
+      }
+      elseif ($response->getMessages()) {
+        foreach ($response->getMessages()->getMessage() as $rError) {
+          $errorMessages[] = $rError->getCode() . ': ' . $rError->getText();
+        }
+        $errorMessage = implode(', ', $errorMessages);
+      }
+      else {
+        $errorCode = NULL;
+        $errorMessage = NULL;
+      }
+      self::handleError($errorCode, $errorMessage, $params['error_url']);
     }
 
-    // TODO: include authorization code?
     if ($this->getContributionId($params)) {
       $contributionParams['id'] = $this->getContributionId($params);
       civicrm_api3('Contribution', 'create', $contributionParams);
@@ -313,13 +359,102 @@ class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment_AuthorizeNet {
   }
 
   /**
-   * Submit an Automated Recurring Billing subscription.
+   * Get the merchant authentication for AuthNet
    *
-   * @return bool
+   * @return \net\authorize\api\contract\v1\MerchantAuthenticationType
    */
-  public function doRecurPayment() {
-    $template = CRM_Core_Smarty::singleton();
+  private function getMerchantAuthentication() {
+    // Create a merchantAuthenticationType object with authentication details
+    $merchantAuthentication = new AnetAPI\MerchantAuthenticationType();
+    $merchantAuthentication->setName($this->_getParam('apiLoginID'));
+    $merchantAuthentication->setTransactionKey($this->_getParam('transactionKey'));
+    return $merchantAuthentication;
+  }
 
+  /**
+   * Get the customer address for AuthNet
+   *
+   * @return \net\authorize\api\contract\v1\CustomerAddressType
+   */
+  private function getCustomerAddress() {
+    // Set the customer's Bill To address
+    $customerAddress = new AnetAPI\CustomerAddressType();
+    !empty($this->_getParam('billing_first_name')) ? $customerAddress->setFirstName($this->_getParam('billing_first_name')) : NULL;
+    !empty($this->_getParam('billing_last_name')) ? $customerAddress->setLastName($this->_getParam('billing_last_name')) : NULL;
+    $customerAddress->setAddress($this->_getParam('street_address'));
+    $customerAddress->setCity($this->_getParam('city'));
+    $customerAddress->setState($this->_getParam('state_province'));
+    $customerAddress->setZip($this->_getParam('postal_code'));
+    $customerAddress->setCountry($this->_getParam('country'));
+    return $customerAddress;
+  }
+
+  /**
+   * Get the customer data for AuthNet
+   *
+   * @return \net\authorize\api\contract\v1\CustomerDataType
+   */
+  private function getCustomerDataType() {
+    // Set the customer's identifying information
+    $customerData = new AnetAPI\CustomerDataType();
+    $customerData->setType('individual');
+    $customerData->setId($this->getContactId($this->_params));
+    $customerData->setEmail($this->getBillingEmail($this->_params, $this->getContactId($this->_params)));
+    return $customerData;
+  }
+
+  /**
+   * Get the customer data for AuthNet
+   *
+   * @return \net\authorize\api\contract\v1\CustomerType
+   */
+  private function getCustomerType() {
+    // Set the customer's identifying information
+    $customerData = new AnetAPI\CustomerType();
+    $customerData->setType('individual');
+    $customerData->setId($this->getContactId($this->_params));
+    $customerData->setEmail($this->getBillingEmail($this->_params, $this->getContactId($this->_params)));
+    return $customerData;
+  }
+
+  /**
+   * Get the bank account for AuthNet
+   *
+   * @return \net\authorize\api\contract\v1\BankAccountType
+   */
+  private function getBankAccount() {
+    // Create the payment data for a Bank Account
+    $bankAccount = new AnetAPI\BankAccountType();
+    $bankAccount->setAccountType(strtoupper($this->_getParam('bank_account_type')));
+    // see eCheck documentation for proper echeck type to use for each situation
+    $bankAccount->setEcheckType('WEB');
+    $bankAccount->setRoutingNumber($this->_getParam('bank_identification_number'));
+    $bankAccount->setAccountNumber($this->_getParam('bank_account_number'));
+    $bankAccount->setNameOnAccount($this->_getParam('account_holder'));
+    $bankAccount->setBankName($this->_getParam('bank_name'));
+    $bankAccount->setAccountType('checking');
+    return $bankAccount;
+  }
+
+  /**
+   * Get the order for AuthNet
+   *
+   * @return \net\authorize\api\contract\v1\OrderType
+   */
+  private function getOrder() {
+    // Order info
+    $order = new AnetAPI\OrderType();
+    $order->setInvoiceNumber($this->getInvoiceNumber());
+    $order->setDescription($this->_getParam('description'));
+    return $order;
+  }
+
+  /**
+   * Get the recurring payment interval for AuthNet
+   *
+   * @return \net\authorize\api\contract\v1\PaymentScheduleType\IntervalAType
+   */
+  private function getRecurInterval() {
     $intervalLength = $this->_getParam('frequency_interval');
     $intervalUnit = $this->_getParam('frequency_unit');
     if ($intervalUnit == 'week') {
@@ -340,30 +475,35 @@ class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment_AuthorizeNet {
     // interval cannot be less than 7 days or more than 1 year
     if ($intervalUnit == 'days') {
       if ($intervalLength < 7) {
-        self::handleError(9001, 'Payment interval must be at least one week', $this->_getParam('error_url'));
+        self::handleError(NULL, 'Payment interval must be at least one week', $this->_getParam('error_url'));
       }
       elseif ($intervalLength > 365) {
-        self::handleError(9001, 'Payment interval may not be longer than one year', $this->_getParam('error_url'));
+        self::handleError(NULL, 'Payment interval may not be longer than one year', $this->_getParam('error_url'));
       }
     }
     elseif ($intervalUnit == 'months') {
       if ($intervalLength < 1) {
-        self::handleError(9001, 'Payment interval must be at least one week', $this->_getParam('error_url'));
+        self::handleError(NULL, 'Payment interval must be at least one week', $this->_getParam('error_url'));
       }
       elseif ($intervalLength > 12) {
-        self::handleError(9001, 'Payment interval may not be longer than one year', $this->_getParam('error_url'));
+        self::handleError(NULL, 'Payment interval may not be longer than one year', $this->_getParam('error_url'));
       }
     }
 
-    $template->assign('intervalLength', $intervalLength);
-    $template->assign('intervalUnit', $intervalUnit);
+    $interval = new AnetAPI\PaymentScheduleType\IntervalAType();
+    $interval->setLength($intervalLength);
+    $interval->setUnit($intervalUnit);
+    return $interval;
+  }
 
-    $template->assign('apiLogin', $this->_getParam('apiLogin'));
-    $template->assign('paymentKey', $this->_getParam('paymentKey'));
-    $template->assign('refId', substr($this->_getParam('invoiceID'), 0, 20));
-
-    //for recurring, carry first contribution id
-    $template->assign('invoiceNumber', $this->_getParam('contributionID'));
+  /**
+   * Get the payment schedule for AuthNet
+   *
+   * @param $interval
+   *
+   * @return \net\authorize\api\contract\v1\PaymentScheduleType
+   */
+  private function getRecurSchedule($interval = NULL) {
     $firstPaymentDate = $this->_getParam('receive_date');
     if (!empty($firstPaymentDate)) {
       //allow for post dated payment if set in form
@@ -379,83 +519,218 @@ class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment_AuthorizeNet {
      * time to bring our date forward. But if we are submitting something future dated we want
      * the date we entered to be respected
      */
-    $minDate = date_create('now', new DateTimeZone(self::TIMEZONE));
+    $minDate = date_create('now', new DateTimeZone(CRM_AuthNet_Helper::TIMEZONE));
     if (strtotime($startDate->format('Y-m-d')) < strtotime($minDate->format('Y-m-d'))) {
-      $startDate->setTimezone(new DateTimeZone(self::TIMEZONE));
+      $startDate->setTimezone(new DateTimeZone(CRM_AuthNet_Helper::TIMEZONE));
     }
-
-    $template->assign('startDate', $startDate->format('Y-m-d'));
 
     $installments = $this->_getParam('installments');
 
     // for open ended subscription totalOccurrences has to be 9999
     $installments = empty($installments) ? 9999 : $installments;
-    $template->assign('totalOccurrences', $installments);
 
-    $template->assign('amount', $this->_getParam('amount'));
+    $paymentSchedule = new AnetAPI\PaymentScheduleType();
+    if ($interval) {
+      $paymentSchedule->setInterval($interval);
+    }
+    $paymentSchedule->setStartDate($startDate);
+    $paymentSchedule->setTotalOccurrences($installments);
+    return $paymentSchedule;
+  }
 
-    $template->assign('paymentType', $this->_getParam('paymentType'));
-    $template->assign('accountType', $this->_getParam('bank_account_type'));
-    $template->assign('routingNumber', $this->_getParam('bank_identification_number'));
-    $template->assign('accountNumber', $this->_getParam('bank_account_number'));
-    $template->assign('nameOnAccount', $this->_getParam('account_holder'));
-    $template->assign('echeckType', 'WEB');
-    $template->assign('bankName', $this->_getParam('bank_name'));
+  /**
+   * Get the trxn_id from the recurring contribution
+   *
+   * @param array $params
+   *
+   * @return string
+   * @throws \CiviCRM_API3_Exception
+   */
+  private function getSubscriptionId($params) {
+    $recurId = $this->getRecurringContributionId($params);
+    return (string) civicrm_api3('ContributionRecur', 'getvalue', ['id' => $recurId, 'return' => 'trxn_id']);
+  }
 
-    // name rather than description is used in the tpl - see http://www.authorize.net/support/ARB_guide.pdf
-    $template->assign('name', $this->_getParam('description', TRUE));
+  /**
+   * Submit an Automated Recurring Billing subscription.
+   *
+   * @return bool
+   * @throws \CiviCRM_API3_Exception
+   */
+  public function doRecurPayment() {
+    $params = $this->_params;
 
-    $template->assign('email', $this->_getParam('email'));
-    $template->assign('contactID', $this->_getParam('contactID'));
-    $template->assign('billingFirstName', $this->_getParam('billing_first_name'));
-    $template->assign('billingLastName', $this->_getParam('billing_last_name'));
-    $template->assign('billingAddress', $this->_getParam('street_address', TRUE));
-    $template->assign('billingCity', $this->_getParam('city', TRUE));
-    $template->assign('billingState', $this->_getParam('state_province'));
-    $template->assign('billingZip', $this->_getParam('postal_code', TRUE));
-    $template->assign('billingCountry', $this->_getParam('country'));
+    $merchantAuthentication = $this->getMerchantAuthentication();
+    // Subscription Type Info
+    $subscription = new AnetAPI\ARBSubscriptionType();
+    $subscription->setName($this->getPaymentDescription($params));
+    $interval = $this->getRecurInterval();
+    $paymentSchedule = $this->getRecurSchedule($interval);
 
-    $arbXML = $template->fetch('CRM/Contribute/Form/Contribution/AuthorizeNetARB.tpl');
-    // submit to authorize.net
+    $subscription->setPaymentSchedule($paymentSchedule);
+    $subscription->setAmount($this->getAmount($this->_params));
 
-    $curlSession = curl_init($this->_paymentProcessor['url_recur']);
-    if (!$curlSession) {
-      self::handleError(9002, 'Could not initiate connection to payment gateway', $this->_getParam('error_url'));
+    $bankAccount = $this->getBankAccount();
+    $payment = new AnetAPI\PaymentType();
+    $payment->setBankAccount($bankAccount);
+    $subscription->setPayment($payment);
+
+    $order = $this->getOrder();
+    $subscription->setOrder($order);
+
+    $customerAddress = $this->getCustomerAddress();
+    $customerData = $this->getCustomerType();
+    $subscription->setBillTo($customerAddress);
+    $subscription->setCustomer($customerData);
+
+    $request = new AnetAPI\ARBCreateSubscriptionRequest();
+    $request->setmerchantAuthentication($merchantAuthentication);
+    $request->setRefId($this->getInvoiceNumber());
+    $request->setSubscription($subscription);
+    $controller = new AnetController\ARBCreateSubscriptionController($request);
+    /** @var \net\authorize\api\contract\v1\ARBCreateSubscriptionResponse $response */
+    $response = $controller->executeWithApiResponse($this->getIsTestMode() ? AnetEnvironment::SANDBOX : AnetEnvironment::PRODUCTION);
+
+    if (!$response || !$response->getMessages()) {
+      self::handleError(NULL, 'No response returned', $params['error_url']);
     }
 
-    $options = [
-      CURLOPT_HEADER => TRUE, // return headers
-      CURLOPT_HTTPHEADER => ["Content-Type: text/xml"],
-      CURLOPT_POST => TRUE,
-      CURLOPT_RETURNTRANSFER => TRUE,
-      CURLOPT_POSTFIELDS => $arbXML,
-      CURLOPT_SSL_VERIFYHOST => Civi::settings()->get('verifySSL') ? 2 : 0,
-      CURLOPT_SSL_VERIFYPEER => Civi::settings()->get('verifySSL'),
-    ];
-    curl_setopt_array($curlSession, $options);
+    if ($response->getMessages()->getResultCode() == "Ok") {
+      $recurParams = [
+        'id' => $params['contributionRecurID'],
+        'trxn_id' => $response->getSubscriptionId(),
+        // FIXME processor_id is deprecated as it is not guaranteed to be unique, but currently (CiviCRM 5.9)
+        //  it is required by cancelSubscription (where it is called subscription_id)
+        'processor_id' => $response->getSubscriptionId(),
+        'auto_renew' => 1,
+        'contribution_status_id' => CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'contribution_status_id', 'In Progress'),
+      ];
+      if (!empty($params['installments'])) {
+        if (empty($params['start_date'])) {
+          $params['start_date'] = date('YmdHis');
+        }
+      }
 
-    $response = curl_exec($curlSession);
+      // Update the recurring payment
+      civicrm_api3('ContributionRecur', 'create', $recurParams);
 
-    if (!$response) {
-      self::handleError(curl_errno($curlSession), curl_error($curlSession), $this->_getParam('error_url'));
+      return TRUE;
+    }
+    else {
+      if ($response->getMessages()) {
+        foreach ($response->getMessages()->getMessage() as $rError) {
+          $errorMessages[] = $rError->getCode() . ': ' . $rError->getText();
+        }
+        $errorMessage = implode(', ', $errorMessages);
+      }
+      else {
+        $errorCode = NULL;
+        $errorMessage = NULL;
+      }
+      self::handleError($errorCode, $errorMessage, $params['error_url']);
+    }
+    return FALSE;
+  }
+
+  /**
+   * @param string $message
+   * @param array $params
+   *
+   * @return bool
+   * @throws \CiviCRM_API3_Exception
+   */
+  public function updateSubscriptionBillingInfo(&$message = '', $params = []) {
+    $params = $this->setParams($params);
+
+    $merchantAuthentication = $this->getMerchantAuthentication();
+
+    $bankAccount = $this->getBankAccount();
+    $payment = new AnetAPI\PaymentType();
+    $payment->setBankAccount($bankAccount);
+    $subscription = new AnetAPI\ARBSubscriptionType();
+    $subscription->setPayment($payment);
+    $customerAddress = $this->getCustomerAddress();
+    //$customerData = $this->getCustomerType();
+    $subscription->setBillTo($customerAddress);
+    //$subscription->setCustomer($customerData);
+
+    $request = new AnetAPI\ARBUpdateSubscriptionRequest();
+    $request->setMerchantAuthentication($merchantAuthentication);
+    $request->setRefId($this->getInvoiceNumber());
+    $request->setSubscriptionId($this->getSubscriptionId($params));
+    $request->setSubscription($subscription);
+    $controller = new AnetController\ARBUpdateSubscriptionController($request);
+    /** @var \net\authorize\api\contract\v1\ARBUpdateSubscriptionResponse $response */
+    $response = $controller->executeWithApiResponse($this->getIsTestMode() ? AnetEnvironment::SANDBOX : AnetEnvironment::PRODUCTION);
+
+    if (!$response || !$response->getMessages()) {
+      self::handleError(NULL, 'No response returned', $params['error_url']);
     }
 
-    curl_close($curlSession);
-    $responseFields = $this->_ParseArbReturn($response);
-
-    if ($responseFields['resultCode'] == 'Error') {
-      self::handleError($responseFields['code'], $responseFields['text'], $this->_getParam('error_url'));
+    if ($response->getMessages()->getResultCode() != "Ok") {
+      if ($response->getMessages()) {
+        foreach ($response->getMessages()->getMessage() as $rError) {
+          $errorMessages[] = $rError->getCode() . ': ' . $rError->getText();
+        }
+        $errorMessage = implode(', ', $errorMessages);
+      }
+      else {
+        $errorCode = NULL;
+        $errorMessage = NULL;
+      }
+      self::handleError($errorCode, $errorMessage, $params['error_url']);
     }
 
-    // update recur processor_id with subscriptionId
-    CRM_Core_DAO::setFieldValue('CRM_Contribute_DAO_ContributionRecur', $this->_getParam('contributionRecurID'),
-      'processor_id', $responseFields['subscriptionId']
-    );
-    //only impact of assigning this here is is can be used to cancel the subscription in an automated test
-    // if it isn't cancelled a duplicate transaction error occurs
-    if (!empty($responseFields['subscriptionId'])) {
-      $this->_setParam('subscriptionId', $responseFields['subscriptionId']);
+    return TRUE;
+  }
+
+  /**
+   * Change the subscription amount using the Smart Debit API
+   *
+   * @param string $message
+   * @param array $params
+   *
+   * @return bool
+   * @throws \Exception
+   */
+  public function changeSubscriptionAmount(&$message = '', $params = []) {
+    $existingParams = civicrm_api3('ContributionRecur', 'getsingle', ['id' => $this->getRecurringContributionId($params)]);
+    $params = array_merge($existingParams, $params);
+    $params = $this->setParams($params);
+
+    $merchantAuthentication = $this->getMerchantAuthentication();
+
+    $subscription = new AnetAPI\ARBSubscriptionType();
+    $paymentSchedule = $this->getRecurSchedule();
+    $subscription->setPaymentSchedule($paymentSchedule);
+    $subscription->setAmount($this->getAmount($this->_params));
+    $request = new AnetAPI\ARBUpdateSubscriptionRequest();
+    $request->setMerchantAuthentication($merchantAuthentication);
+    $request->setRefId($this->getInvoiceNumber());
+    $request->setSubscriptionId($this->getSubscriptionId($params));
+    $request->setSubscription($subscription);
+    $controller = new AnetController\ARBUpdateSubscriptionController($request);
+    /** @var \net\authorize\api\contract\v1\ARBUpdateSubscriptionResponse $response */
+    $response = $controller->executeWithApiResponse($this->getIsTestMode() ? AnetEnvironment::SANDBOX : AnetEnvironment::PRODUCTION);
+
+    if (!$response || !$response->getMessages()) {
+      self::handleError(NULL, 'No response returned', $params['error_url']);
     }
+
+    if ($response->getMessages()->getResultCode() != "Ok") {
+      if ($response->getMessages()) {
+        foreach ($response->getMessages()->getMessage() as $rError) {
+          $errorMessages[] = $rError->getCode() . ': ' . $rError->getText();
+        }
+        $errorMessage = implode(', ', $errorMessages);
+      }
+      else {
+        $errorCode = NULL;
+        $errorMessage = NULL;
+      }
+      self::handleError($errorCode, $errorMessage, $params['error_url']);
+    }
+
     return TRUE;
   }
 
@@ -463,111 +738,55 @@ class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment_AuthorizeNet {
    * @param string $message
    * @param array $params
    *
-   * @return bool|object
+   * @return bool
+   * @throws \CiviCRM_API3_Exception
    */
-  public function updateSubscriptionBillingInfo(&$message = '', $params = array()) {
+  public function cancelSubscription(&$message = '', $params = []) {
+    $params = $this->setParams($params);
 
-    $params['error_url'] = self::getErrorUrl($params);
-
-    $template = CRM_Core_Smarty::singleton();
-    $template->assign('subscriptionType', 'updateBilling');
-
-    $template->assign('apiLogin', $this->_getParam('apiLogin'));
-    $template->assign('paymentKey', $this->_getParam('paymentKey'));
-    $template->assign('subscriptionId', $params['subscriptionId']);
-
-    $template->assign('paymentType', $this->_getParam('paymentType'));
-    $template->assign('accountType', $params['bank_account_type']);
-    $template->assign('routingNumber', $params['bank_identification_number']);
-    $template->assign('accountNumber', $params['bank_account_number']);
-    $template->assign('nameOnAccount', $params['account_holder']);
-    $template->assign('echeckType', 'WEB');
-    $template->assign('bankName', $params['bank_name']);
-
-    $template->assign('billingFirstName', $params['first_name']);
-    $template->assign('billingLastName', $params['last_name']);
-    $template->assign('billingAddress', $params['street_address']);
-    $template->assign('billingCity', $params['city']);
-    $template->assign('billingState', $params['state_province']);
-    $template->assign('billingZip', $params['postal_code']);
-    $template->assign('billingCountry', $params['country']);
-
-    $arbXML = $template->fetch('CRM/Contribute/Form/Contribution/AuthorizeNetARB.tpl');
-
-    // submit to authorize.net
-    $submit = curl_init($this->_paymentProcessor['url_recur']);
-    if (!$submit) {
-      self::handleError(9002, 'Could not initiate connection to payment gateway', $params['error_url']);
+    $contributionRecurId = $this->getRecurringContributionId($params);
+    try {
+      $contributionRecur = civicrm_api3('ContributionRecur', 'getsingle', [
+        'id' => $contributionRecurId,
+      ]);
+    }
+    catch (Exception $e) {
+      return FALSE;
+    }
+    if (empty($contributionRecur['trxn_id'])) {
+      CRM_Core_Session::setStatus(ts('The recurring contribution cannot be cancelled (No reference (trxn_id) found).'), 'Smart Debit', 'error');
+      return FALSE;
     }
 
-    curl_setopt($submit, CURLOPT_RETURNTRANSFER, 1);
-    curl_setopt($submit, CURLOPT_HTTPHEADER, array("Content-Type: text/xml"));
-    curl_setopt($submit, CURLOPT_HEADER, 1);
-    curl_setopt($submit, CURLOPT_POSTFIELDS, $arbXML);
-    curl_setopt($submit, CURLOPT_POST, 1);
-    curl_setopt($submit, CURLOPT_SSL_VERIFYPEER, Civi::settings()->get('verifySSL'));
+    $merchantAuthentication = $this->getMerchantAuthentication();
 
-    $response = curl_exec($submit);
+    $request = new AnetAPI\ARBCancelSubscriptionRequest();
+    $request->setMerchantAuthentication($merchantAuthentication);
+    $request->setRefId($this->getInvoiceNumber());
+    $request->setSubscriptionId($this->getSubscriptionId($params));
+    $controller = new AnetController\ARBCancelSubscriptionController($request);
+    /** @var \net\authorize\api\contract\v1\ARBCancelSubscriptionResponse $response */
+    $response = $controller->executeWithApiResponse($this->getIsTestMode() ? AnetEnvironment::SANDBOX : AnetEnvironment::PRODUCTION);
 
-    if (!$response) {
-      self::handleError(curl_errno($submit), curl_error($submit), $params['error_url']);
+    if (!$response || !$response->getMessages()) {
+      self::handleError(NULL, 'No response returned', $params['error_url']);
     }
 
-    curl_close($submit);
-
-    $responseFields = $this->_ParseArbReturn($response);
-    $message = "{$responseFields['code']}: {$responseFields['text']}";
-
-    if ($responseFields['resultCode'] == 'Error') {
-      self::handleError($responseFields['code'], $responseFields['text'], $params['error_url']);
+    if ($response->getMessages()->getResultCode() != "Ok") {
+      if ($response->getMessages()) {
+        foreach ($response->getMessages()->getMessage() as $rError) {
+          $errorMessages[] = $rError->getCode() . ': ' . $rError->getText();
+        }
+        $errorMessage = implode(', ', $errorMessages);
+      }
+      else {
+        $errorCode = NULL;
+        $errorMessage = NULL;
+      }
+      self::handleError($errorCode, $errorMessage, $params['error_url']);
     }
+
     return TRUE;
-  }
-
-
-  function _getAuthorizeNetFields() {
-    if (empty($amount)) {
-      //CRM-9894 would this ever be the case??
-      $amount = $this->_getParam('amount');
-    }
-    $fields = array();
-    $fields['x_login'] = $this->_getParam('apiLogin');
-    $fields['x_tran_key'] = $this->_getParam('paymentKey');
-    $fields['x_email_customer'] = $this->_getParam('email');
-    $fields['x_first_name'] = $this->_getParam('billing_first_name');
-    $fields['x_last_name'] = $this->_getParam('billing_last_name');
-    $fields['x_address'] = $this->_getParam('street_address');
-    $fields['x_city'] = $this->_getParam('city');
-    $fields['x_state'] = $this->_getParam('state_province');
-    $fields['x_zip'] = $this->_getParam('postal_code');
-    $fields['x_country'] = $this->_getParam('country');
-    $fields['x_customer_ip'] = $this->_getParam('ip_address');
-    $fields['x_email'] = $this->_getParam('email');
-    $fields['x_invoice_num'] = substr($this->_getParam('invoiceID'), 0, 20);
-    $fields['x_amount'] = $amount;
-    $fields['x_currency_code'] = $this->_getParam('currencyID');
-    $fields['x_description'] = $this->_getParam('description');
-    $fields['x_cust_id'] = $this->_getParam('contactID');
-    $fields['x_method'] = $this->_getParam('paymentType');
-    $fields['x_bank_aba_code'] = $this->_getParam('bank_identification_number');
-    $fields['x_bank_acct_num'] = $this->_getParam('bank_account_number');
-    $fields['x_bank_acct_type'] = strtoupper($this->_getParam('bank_account_type'));
-    $fields['x_bank_name'] = $this->_getParam('bank_name');
-    $fields['x_bank_acct_name'] = $this->_getParam('account_holder');
-    $fields['x_echeck_type'] = 'WEB';
-    $fields['x_email_customer'] = $this->_getParam('email');
-
-    $fields['x_relay_response'] = 'FALSE';
-
-    // request response in CSV format
-    $fields['x_delim_data'] = 'TRUE';
-    $fields['x_delim_char'] = ',';
-    $fields['x_encap_char'] = '"';
-
-    if ($this->_mode != 'live') {
-      $fields['x_test_request'] = 'TRUE';
-    }
-    return $fields;
   }
 
   /**
@@ -581,16 +800,63 @@ class CRM_Core_Payment_AuthNetEcheck extends CRM_Core_Payment_AuthorizeNet {
    *     (or statusbounce if URL is specified)
    */
   public function handleError($errorCode = NULL, $errorMessage = NULL, $bounceURL = NULL) {
-    $errorCode = empty($errorCode) ? 9001 : $errorCode;
+    $errorCode = empty($errorCode) ? '' : $errorCode . ': ';
     $errorMessage = empty($errorMessage) ? 'Unknown System Error.' : $errorMessage;
-    $message = 'Code: ' . $errorCode . ' Message: ' . $errorMessage;
+    $message = $errorCode . $errorMessage;
 
     Civi::log()->debug('AuthNetEcheck Payment Error: ' . $message);
 
     if ($bounceURL) {
-      CRM_Core_Error::statusBounce($message, $bounceURL, E::ts('Error: %1', $this->getPaymentTypeLabel()));
+      CRM_Core_Error::statusBounce($message, $bounceURL, E::ts('Error: %1', [1 => $this->getPaymentTypeLabel()]));
     }
     return $errorMessage;
   }
 
+  /**
+   * Return the invoice number formatted in the "standard" way
+   * @fixme This is how it has always been done with authnetecheck and is not necessarily the best way
+   *
+   * @return string
+   */
+  public function getInvoiceNumber() {
+    return substr($this->_getParam('invoiceID'), 0, 20);
+  }
+
+  /**
+   * Get the value of a field if set.
+   *
+   * @param string $field
+   *   The field.
+   *
+   * @param bool $xmlSafe
+   * @return mixed
+   *   value of the field, or empty string if the field is
+   *   not set
+   */
+  public function _getParam($field, $xmlSafe = FALSE) {
+    $value = CRM_Utils_Array::value($field, $this->_params, '');
+    if ($xmlSafe) {
+      $value = str_replace(['&', '"', "'", '<', '>'], '', $value);
+    }
+    return $value;
+  }
+
+  /**
+   * Set a field to the specified value.  Value must be a scalar (int,
+   * float, string, or boolean)
+   *
+   * @param string $field
+   * @param mixed $value
+   *
+   * @return bool
+   *   false if value is not a scalar, true if successful
+   */
+  public function _setParam($field, $value) {
+    if (!is_scalar($value)) {
+      return FALSE;
+    }
+    else {
+      $this->_params[$field] = $value;
+    }
+  }
 }
