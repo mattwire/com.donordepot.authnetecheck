@@ -30,20 +30,17 @@
  */
 return [
   0 => [
-    'name' => 'Authorize.Net eCheck.Net',
+    'name' => 'Authorize.Net (eCheck.Net)',
     'entity' => 'payment_processor_type',
     'params' => [
       'version' => 3,
       'name' => 'AuthorizeNeteCheck',
-      'title' => 'Authorize.net eCheck.Net',
+      'title' => 'Authorize.net (eCheck.Net)',
       'class_name' => 'Payment_AuthNetEcheck',
       'user_name_label' => 'API Login ID',
       'password_label' => 'Transaction Key',
-      'signature_label' => 'unused',
-      'url_site_default'=> 'https://secure.authorize.net/gateway/transact.dll',
-      'url_recur_default' => 'https://api.authorize.net/xml/v1/request.api',
-      'url_site_test_default' => 'https://test.authorize.net/gateway/transact.dll',
-      'url_recur_test_default' => 'https://apitest.authorize.net/xml/v1/request.api',
+      'signature_label' => 'Signature Key',
+      'url_site_default' => 'https://unused.org',
       'billing_mode' => 1,
       'payment_type' => 1,
       'is_recur' => 1,

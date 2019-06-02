@@ -3,10 +3,12 @@
  * Shared payment functions that should one day be migrated to CiviCRM core
  */
 
-trait CRM_Core_Payment_AuthNetEcheckTrait {
+trait CRM_Core_Payment_AuthorizeNetTrait {
   /**********************
-   * Version 20190414
+   * Version 20190531
    *********************/
+
+  protected $_params = [];
 
   /**
    * Get the billing email address
@@ -26,16 +28,46 @@ trait CRM_Core_Payment_AuthNetEcheckTrait {
     if (empty($emailAddress) && !empty($contactId)) {
       // Try and retrieve an email address from Contact ID
       try {
-        $emailAddress = civicrm_api3('Email', 'getvalue', array(
+        $emailAddress = civicrm_api3('Email', 'getvalue', [
           'contact_id' => $contactId,
           'return' => ['email'],
-        ));
+        ]);
       }
       catch (CiviCRM_API3_Exception $e) {
         return NULL;
       }
     }
     return $emailAddress;
+  }
+
+  /**
+   * Get the billing email address
+   *
+   * @param array $params
+   * @param int $contactId
+   *
+   * @return string|NULL
+   */
+  protected function getBillingPhone($params, $contactId) {
+    $billingLocationId = CRM_Core_BAO_LocationType::getBilling();
+
+    $phoneNumber = CRM_Utils_Array::value("phone-{$billingLocationId}", $params,
+      CRM_Utils_Array::value('phone-Primary', $params,
+        CRM_Utils_Array::value('phone', $params, NULL)));
+
+    if (empty($phoneNumber) && !empty($contactId)) {
+      // Try and retrieve a phone number from Contact ID
+      try {
+        $phoneNumber = civicrm_api3('Phone', 'getvalue', [
+          'contact_id' => $contactId,
+          'return' => ['phone'],
+        ]);
+      }
+      catch (CiviCRM_API3_Exception $e) {
+        return NULL;
+      }
+    }
+    return $phoneNumber;
   }
 
   /**
@@ -46,7 +78,9 @@ trait CRM_Core_Payment_AuthNetEcheckTrait {
    * @return int ContactID
    */
   protected function getContactId($params) {
+    // $params['contact_id'] is preferred.
     // contactID is set by: membership payment workflow
+    // cms_contactID is set by: membership payment workflow when "on behalf of" / related contact is used.
     $contactId = CRM_Utils_Array::value('contactID', $params,
       CRM_Utils_Array::value('contact_id', $params,
         CRM_Utils_Array::value('cms_contactID', $params,
@@ -132,10 +166,10 @@ trait CRM_Core_Payment_AuthNetEcheckTrait {
 
     // Create a Payment Instrument
     // See if we already have this type
-    $paymentInstrument = civicrm_api3('OptionValue', 'get', array(
+    $paymentInstrument = civicrm_api3('OptionValue', 'get', [
       'option_group_id' => "payment_instrument",
       'name' => $params['name'],
-    ));
+    ]);
     if (empty($paymentInstrument['count'])) {
       // Otherwise create it
       try {
@@ -209,23 +243,24 @@ trait CRM_Core_Payment_AuthNetEcheckTrait {
    * @return array
    */
   private function formatParamsForPaymentProcessor($fields) {
+    $billingLocationId = CRM_Core_BAO_LocationType::getBilling();
     // also add location name to the array
-    $this->_params["address_name-{$this->_bltID}"] = CRM_Utils_Array::value('billing_first_name', $this->_params) . ' ' . CRM_Utils_Array::value('billing_middle_name', $this->_params) . ' ' . CRM_Utils_Array::value('billing_last_name', $this->_params);
-    $this->_params["address_name-{$this->_bltID}"] = trim($this->_params["address_name-{$this->_bltID}"]);
+    $this->_params["address_name-{$billingLocationId}"] = CRM_Utils_Array::value('billing_first_name', $this->_params) . ' ' . CRM_Utils_Array::value('billing_middle_name', $this->_params) . ' ' . CRM_Utils_Array::value('billing_last_name', $this->_params);
+    $this->_params["address_name-{$billingLocationId}"] = trim($this->_params["address_name-{$billingLocationId}"]);
     // Add additional parameters that the payment processors are used to receiving.
-    if (!empty($this->_params["billing_state_province_id-{$this->_bltID}"])) {
-      $this->_params['state_province'] = $this->_params["state_province-{$this->_bltID}"] = $this->_params["billing_state_province-{$this->_bltID}"] = CRM_Core_PseudoConstant::stateProvinceAbbreviation($this->_params["billing_state_province_id-{$this->_bltID}"]);
+    if (!empty($this->_params["billing_state_province_id-{$billingLocationId}"])) {
+      $this->_params['state_province'] = $this->_params["state_province-{$billingLocationId}"] = $this->_params["billing_state_province-{$billingLocationId}"] = CRM_Core_PseudoConstant::stateProvinceAbbreviation($this->_params["billing_state_province_id-{$billingLocationId}"]);
     }
-    if (!empty($this->_params["billing_country_id-{$this->_bltID}"])) {
-      $this->_params['country'] = $this->_params["country-{$this->_bltID}"] = $this->_params["billing_country-{$this->_bltID}"] = CRM_Core_PseudoConstant::countryIsoCode($this->_params["billing_country_id-{$this->_bltID}"]);
+    if (!empty($this->_params["billing_country_id-{$billingLocationId}"])) {
+      $this->_params['country'] = $this->_params["country-{$billingLocationId}"] = $this->_params["billing_country-{$billingLocationId}"] = CRM_Core_PseudoConstant::countryIsoCode($this->_params["billing_country_id-{$billingLocationId}"]);
     }
 
-    list($hasAddressField, $addressParams) = CRM_Contribute_BAO_Contribution::getPaymentProcessorReadyAddressParams($this->_params, $this->_bltID);
+    list($hasAddressField, $addressParams) = CRM_Contribute_BAO_Contribution::getPaymentProcessorReadyAddressParams($this->_params, $billingLocationId);
     if ($hasAddressField) {
       $this->_params = array_merge($this->_params, $addressParams);
     }
 
-    $nameFields = array('first_name', 'middle_name', 'last_name');
+    $nameFields = ['first_name', 'middle_name', 'last_name'];
     foreach ($nameFields as $name) {
       $fields[$name] = 1;
       if (array_key_exists("billing_$name", $this->_params)) {
@@ -235,4 +270,79 @@ trait CRM_Core_Payment_AuthNetEcheckTrait {
     }
     return $fields;
   }
+
+  /**
+   * Called at the beginning of each payment related function (doPayment, updateSubscription etc)
+   *
+   * @param array $params
+   *
+   * @return array
+   */
+  private function setParams($params) {
+    $params['error_url'] = self::getErrorUrl($params);
+    $params = $this->formatParamsForPaymentProcessor($params);
+    $newParams = $params;
+    CRM_Utils_Hook::alterPaymentProcessorParams($this, $params, $newParams);
+    foreach ($newParams as $field => $value) {
+      $this->setParam($field, $value);
+    }
+    return $newParams;
+  }
+
+  /**
+   * Get the value of a field if set.
+   *
+   * @param string $field
+   *   The field.
+   *
+   * @return mixed
+   *   value of the field, or empty string if the field is
+   *   not set
+   */
+  private function getParam($field) {
+    return CRM_Utils_Array::value($field, $this->_params, '');
+  }
+
+  /**
+   * Set a field to the specified value.  Value must be a scalar (int,
+   * float, string, or boolean)
+   *
+   * @param string $field
+   * @param mixed $value
+   *
+   * @return bool
+   *   false if value is not a scalar, true if successful
+   */
+  private function setParam($field, $value) {
+    if (!is_scalar($value)) {
+      return FALSE;
+    }
+    else {
+      $this->_params[$field] = $value;
+    }
+  }
+
+  /**
+   * Handle an error and notify the user
+   *
+   * @param string $errorCode
+   * @param string $errorMessage
+   * @param string $bounceURL
+   *
+   * @return string $errorMessage
+   *     (or statusbounce if URL is specified)
+   */
+  private function handleError($errorCode = NULL, $errorMessage = NULL, $bounceURL = NULL) {
+    $errorCode = empty($errorCode) ? '' : $errorCode . ': ';
+    $errorMessage = empty($errorMessage) ? 'Unknown System Error.' : $errorMessage;
+    $message = $errorCode . $errorMessage;
+
+    Civi::log()->debug($this->getPaymentTypeLabel() . ' Payment Error: ' . $message);
+
+    if ($bounceURL) {
+      CRM_Core_Error::statusBounce($message, $bounceURL, $this->getPaymentTypeLabel());
+    }
+    return $errorMessage;
+  }
+
 }

@@ -1,5 +1,6 @@
 {
     "require": {
-        "authorizenet/authorizenet": "^2.0"
+        "authorizenet/authorizenet": "^2.0",
+        "stymiee/authnetjson": "^3.1"
     }
 }

@@ -6,6 +6,23 @@ $vendorDir = dirname(dirname(__FILE__));
 $baseDir = dirname($vendorDir);
 
 return array(
+    'JohnConde\\Authnet\\AuthnetApiFactory' => $vendorDir . '/stymiee/authnetjson/src/authnet/AuthnetApiFactory.php',
+    'JohnConde\\Authnet\\AuthnetCannotSetParamsException' => $vendorDir . '/stymiee/authnetjson/src/exceptions/AuthnetCannotSetParamsException.php',
+    'JohnConde\\Authnet\\AuthnetCurlException' => $vendorDir . '/stymiee/authnetjson/src/exceptions/AuthnetCurlException.php',
+    'JohnConde\\Authnet\\AuthnetException' => $vendorDir . '/stymiee/authnetjson/src/exceptions/AuthnetException.php',
+    'JohnConde\\Authnet\\AuthnetInvalidAmountException' => $vendorDir . '/stymiee/authnetjson/src/exceptions/AuthnetInvalidAmountException.php',
+    'JohnConde\\Authnet\\AuthnetInvalidCredentialsException' => $vendorDir . '/stymiee/authnetjson/src/exceptions/AuthnetInvalidCredentialsException.php',
+    'JohnConde\\Authnet\\AuthnetInvalidJsonException' => $vendorDir . '/stymiee/authnetjson/src/exceptions/AuthnetInvalidJsonException.php',
+    'JohnConde\\Authnet\\AuthnetInvalidParameterException' => $vendorDir . '/stymiee/authnetjson/src/exceptions/AuthnetInvalidParameterException.php',
+    'JohnConde\\Authnet\\AuthnetInvalidServerException' => $vendorDir . '/stymiee/authnetjson/src/exceptions/AuthnetInvalidServerException.php',
+    'JohnConde\\Authnet\\AuthnetJsonRequest' => $vendorDir . '/stymiee/authnetjson/src/authnet/AuthnetJsonRequest.php',
+    'JohnConde\\Authnet\\AuthnetJsonResponse' => $vendorDir . '/stymiee/authnetjson/src/authnet/AuthnetJsonResponse.php',
+    'JohnConde\\Authnet\\AuthnetSim' => $vendorDir . '/stymiee/authnetjson/src/authnet/AuthnetSim.php',
+    'JohnConde\\Authnet\\AuthnetTransactionResponseCallException' => $vendorDir . '/stymiee/authnetjson/src/exceptions/AuthnetTransactionResponseCallException.php',
+    'JohnConde\\Authnet\\AuthnetWebhook' => $vendorDir . '/stymiee/authnetjson/src/authnet/AuthnetWebhook.php',
+    'JohnConde\\Authnet\\AuthnetWebhooksRequest' => $vendorDir . '/stymiee/authnetjson/src/authnet/AuthnetWebhooksRequest.php',
+    'JohnConde\\Authnet\\AuthnetWebhooksResponse' => $vendorDir . '/stymiee/authnetjson/src/authnet/AuthnetWebhooksResponse.php',
+    'JohnConde\\Authnet\\TransactionResponse' => $vendorDir . '/stymiee/authnetjson/src/authnet/TransactionResponse.php',
     'net\\authorize\\api\\constants\\ANetEnvironment' => $vendorDir . '/authorizenet/authorizenet/lib/net/authorize/api/constants/ANetEnvironment.php',
     'net\\authorize\\api\\contract\\v1\\ANetApiRequestType' => $vendorDir . '/authorizenet/authorizenet/lib/net/authorize/api/contract/v1/ANetApiRequestType.php',
     'net\\authorize\\api\\contract\\v1\\ANetApiResponseType' => $vendorDir . '/authorizenet/authorizenet/lib/net/authorize/api/contract/v1/ANetApiResponseType.php',

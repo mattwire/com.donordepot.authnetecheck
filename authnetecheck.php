@@ -41,7 +41,7 @@ function authnetecheck_civicrm_install() {
  */
 function authnetecheck_civicrm_postInstall() {
   // Create an Direct Debit Payment Instrument
-  CRM_Core_Payment_AuthNetEcheck::createPaymentInstrument(['name' => 'EFT']);
+  CRM_Core_Payment_AuthorizeNetTrait::createPaymentInstrument(['name' => 'EFT']);
   _authnetecheck_civix_civicrm_postInstall();
 }
 
@@ -119,4 +119,11 @@ function authnetecheck_civicrm_caseTypes(&$caseTypes) {
  */
 function authnetecheck_civicrm_alterSettingsFolders(&$metaDataFolders = NULL) {
   _authnetecheck_civix_civicrm_alterSettingsFolders($metaDataFolders);
+}
+
+/**
+ * Implements hook_civicrm_check().
+ */
+function authnetecheck_civicrm_check(&$messages) {
+  $messages = CRM_AuthorizeNet_Webhook::check();
 }

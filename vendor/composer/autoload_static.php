@@ -6,7 +6,34 @@ namespace Composer\Autoload;
 
 class ComposerStaticInitafc24a1bffb0d1c8fef29ed057c8fc37
 {
+    public static $prefixesPsr0 = array (
+        'C' => 
+        array (
+            'Curl' => 
+            array (
+                0 => __DIR__ . '/..' . '/curl/curl/src',
+            ),
+        ),
+    );
+
     public static $classMap = array (
+        'JohnConde\\Authnet\\AuthnetApiFactory' => __DIR__ . '/..' . '/stymiee/authnetjson/src/authnet/AuthnetApiFactory.php',
+        'JohnConde\\Authnet\\AuthnetCannotSetParamsException' => __DIR__ . '/..' . '/stymiee/authnetjson/src/exceptions/AuthnetCannotSetParamsException.php',
+        'JohnConde\\Authnet\\AuthnetCurlException' => __DIR__ . '/..' . '/stymiee/authnetjson/src/exceptions/AuthnetCurlException.php',
+        'JohnConde\\Authnet\\AuthnetException' => __DIR__ . '/..' . '/stymiee/authnetjson/src/exceptions/AuthnetException.php',
+        'JohnConde\\Authnet\\AuthnetInvalidAmountException' => __DIR__ . '/..' . '/stymiee/authnetjson/src/exceptions/AuthnetInvalidAmountException.php',
+        'JohnConde\\Authnet\\AuthnetInvalidCredentialsException' => __DIR__ . '/..' . '/stymiee/authnetjson/src/exceptions/AuthnetInvalidCredentialsException.php',
+        'JohnConde\\Authnet\\AuthnetInvalidJsonException' => __DIR__ . '/..' . '/stymiee/authnetjson/src/exceptions/AuthnetInvalidJsonException.php',
+        'JohnConde\\Authnet\\AuthnetInvalidParameterException' => __DIR__ . '/..' . '/stymiee/authnetjson/src/exceptions/AuthnetInvalidParameterException.php',
+        'JohnConde\\Authnet\\AuthnetInvalidServerException' => __DIR__ . '/..' . '/stymiee/authnetjson/src/exceptions/AuthnetInvalidServerException.php',
+        'JohnConde\\Authnet\\AuthnetJsonRequest' => __DIR__ . '/..' . '/stymiee/authnetjson/src/authnet/AuthnetJsonRequest.php',
+        'JohnConde\\Authnet\\AuthnetJsonResponse' => __DIR__ . '/..' . '/stymiee/authnetjson/src/authnet/AuthnetJsonResponse.php',
+        'JohnConde\\Authnet\\AuthnetSim' => __DIR__ . '/..' . '/stymiee/authnetjson/src/authnet/AuthnetSim.php',
+        'JohnConde\\Authnet\\AuthnetTransactionResponseCallException' => __DIR__ . '/..' . '/stymiee/authnetjson/src/exceptions/AuthnetTransactionResponseCallException.php',
+        'JohnConde\\Authnet\\AuthnetWebhook' => __DIR__ . '/..' . '/stymiee/authnetjson/src/authnet/AuthnetWebhook.php',
+        'JohnConde\\Authnet\\AuthnetWebhooksRequest' => __DIR__ . '/..' . '/stymiee/authnetjson/src/authnet/AuthnetWebhooksRequest.php',
+        'JohnConde\\Authnet\\AuthnetWebhooksResponse' => __DIR__ . '/..' . '/stymiee/authnetjson/src/authnet/AuthnetWebhooksResponse.php',
+        'JohnConde\\Authnet\\TransactionResponse' => __DIR__ . '/..' . '/stymiee/authnetjson/src/authnet/TransactionResponse.php',
         'net\\authorize\\api\\constants\\ANetEnvironment' => __DIR__ . '/..' . '/authorizenet/authorizenet/lib/net/authorize/api/constants/ANetEnvironment.php',
         'net\\authorize\\api\\contract\\v1\\ANetApiRequestType' => __DIR__ . '/..' . '/authorizenet/authorizenet/lib/net/authorize/api/contract/v1/ANetApiRequestType.php',
         'net\\authorize\\api\\contract\\v1\\ANetApiResponseType' => __DIR__ . '/..' . '/authorizenet/authorizenet/lib/net/authorize/api/contract/v1/ANetApiResponseType.php',
@@ -287,6 +314,7 @@ class ComposerStaticInitafc24a1bffb0d1c8fef29ed057c8fc37
     public static function getInitializer(ClassLoader $loader)
     {
         return \Closure::bind(function () use ($loader) {
+            $loader->prefixesPsr0 = ComposerStaticInitafc24a1bffb0d1c8fef29ed057c8fc37::$prefixesPsr0;
             $loader->classMap = ComposerStaticInitafc24a1bffb0d1c8fef29ed057c8fc37::$classMap;
 
         }, null, ClassLoader::class);
