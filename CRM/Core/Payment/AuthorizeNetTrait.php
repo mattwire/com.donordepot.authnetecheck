@@ -1,14 +1,31 @@
 <?php
 /**
+ * https://civicrm.org/licensing
+ */
+
+/**
  * Shared payment functions that should one day be migrated to CiviCRM core
  */
 
 trait CRM_Core_Payment_AuthorizeNetTrait {
   /**********************
-   * Version 20190531
+   * MJW_Core_Payment_Trait: 20190706
    *********************/
 
+  /**
+   * @var array params passed for payment
+   */
   protected $_params = [];
+
+  /**
+   * @var string The unique invoice/order reference from the payment processor
+   */
+  private $paymentProcessorInvoiceID;
+
+  /**
+   * @var string The unique subscription reference from the payment processor
+   */
+  private $paymentProcessorSubscriptionID;
 
   /**
    * Get the billing email address
@@ -124,7 +141,8 @@ trait CRM_Core_Payment_AuthorizeNetTrait {
    */
   protected function getRecurringContributionId($params) {
     // Not yet passed, but could be added via core PR
-    $contributionRecurId = CRM_Utils_Array::value('contribution_recur_id', $params);
+    $contributionRecurId = CRM_Utils_Array::value('contribution_recur_id', $params,
+      CRM_Utils_Array::value('contributionRecurID', $params)); // backend live contribution
     if (!empty($contributionRecurId)) {
       return $contributionRecurId;
     }
@@ -343,6 +361,83 @@ trait CRM_Core_Payment_AuthorizeNetTrait {
       CRM_Core_Error::statusBounce($message, $bounceURL, $this->getPaymentTypeLabel());
     }
     return $errorMessage;
+  }
+
+  /**
+   * Get the label for the payment processor
+   *
+   * @return string
+   */
+  protected function getPaymentProcessorLabel() {
+    return $this->_paymentProcessor['name'];
+  }
+
+  /**
+   * Set the payment processor Invoice ID
+   *
+   * @param string $invoiceID
+   */
+  protected function setPaymentProcessorInvoiceID($invoiceID) {
+    $this->paymentProcessorInvoiceID = $invoiceID;
+  }
+
+  /**
+   * Get the payment processor Invoice ID
+   *
+   * @return string
+   */
+  protected function getPaymentProcessorInvoiceID() {
+    return $this->paymentProcessorInvoiceID;
+  }
+
+  /**
+   * Set the payment processor Subscription ID
+   *
+   * @param string $subscriptionID
+   */
+  protected function setPaymentProcessorSubscriptionID($subscriptionID) {
+    $this->paymentProcessorSubscriptionID = $subscriptionID;
+  }
+
+  /**
+   * Get the payment processor Subscription ID
+   *
+   * @return string
+   */
+  protected function getPaymentProcessorSubscriptionID() {
+    return $this->paymentProcessorSubscriptionID;
+  }
+
+  protected function beginDoPayment($params) {
+    // Set default contribution status
+    $params['contribution_status_id'] = CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'contribution_status_id', 'Pending');
+    $params = $this->setParams($params);
+    return $params;
+  }
+
+  /**
+   * Call this at the end of a call to doPayment to ensure everything is updated/returned correctly.
+   *
+   * @param array $params
+   *
+   * @return array
+   * @throws \CiviCRM_API3_Exception
+   */
+  protected function endDoPayment($params) {
+    $contributionParams['trxn_id'] = $this->getPaymentProcessorInvoiceID();
+
+    if ($this->getContributionId($params)) {
+      $contributionParams['id'] = $this->getContributionId($params);
+      civicrm_api3('Contribution', 'create', $contributionParams);
+      unset($contributionParams['id']);
+    }
+    $params = array_merge($params, $contributionParams);
+
+    // We need to set this to ensure that contributions are set to the correct status
+    if (!empty($params['contribution_status_id'])) {
+      $params['payment_status_id'] = $params['contribution_status_id'];
+    }
+    return $params;
   }
 
 }

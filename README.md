@@ -29,6 +29,3 @@ This software is licensed under the GNU General Public License 3 (GNU GPL 3)
 ## Development
 
 * Webhooks based on stymiee/authnetjson library - http://www.johnconde.net/blog/handling-authorize-net-webhooks-with-php/
-  **Important**: \JohnConde\Authnet\AuthnetWebhooksRequest::handleResponse() is modified (comment out `if (empty($error_message)) {`) otherwise we can't access meaningful errors from Authnet API.
-  See <https://github.com/stymiee/authnetjson/issues/6>
-

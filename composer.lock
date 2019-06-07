@@ -106,16 +106,16 @@
         },
         {
             "name": "stymiee/authnetjson",
-            "version": "3.1.8",
+            "version": "3.1.9",
             "source": {
                 "type": "git",
                 "url": "https://github.com/stymiee/authnetjson.git",
-                "reference": "8731634349f56ec32da1431d081d05328f9e4db0"
+                "reference": "2161c1fb0b688d52cdc56af08d37acf96898bb1f"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/stymiee/authnetjson/zipball/8731634349f56ec32da1431d081d05328f9e4db0",
-                "reference": "8731634349f56ec32da1431d081d05328f9e4db0",
+                "url": "https://api.github.com/repos/stymiee/authnetjson/zipball/2161c1fb0b688d52cdc56af08d37acf96898bb1f",
+                "reference": "2161c1fb0b688d52cdc56af08d37acf96898bb1f",
                 "shasum": ""
             },
             "require": {
@@ -142,14 +142,22 @@
                     "role": "Developer"
                 }
             ],
-            "description": "Abstract library for the Authorize.Net JSON APIs",
+            "description": "Library that abstracts Authorize.Net's JSON APIs. This includes the Advanced Integration Method (AIM), Automated Recurring Billing (ARB), Customer Information Manager (CIM), Transaction Reporting, Simple Integration Method (SIM), and Webhooks.",
             "homepage": "http://github.com/stymiee/authnetjson",
             "keywords": [
+                "JSON-API",
                 "authnetjson",
+                "authorize-net",
                 "authorize.net",
-                "json"
+                "authorizenet",
+                "capture-transaction",
+                "json",
+                "payment",
+                "payment-gateway",
+                "php",
+                "webhook"
             ],
-            "time": "2019-01-27T00:14:35+00:00"
+            "time": "2019-06-04T00:18:39+00:00"
         }
     ],
     "packages-dev": [],

@@ -131,9 +131,7 @@ abstract class CRM_Core_Payment_AuthorizeNetCommon extends CRM_Core_Payment {
    * @throws \CiviCRM_API3_Exception
    */
   public function doPayment(&$params, $component = 'contribute') {
-    // Set default contribution status
-    $params['contribution_status_id'] = CRM_Core_PseudoConstant::getKey('CRM_Contribute_BAO_Contribution', 'contribution_status_id', 'Pending');
-    $params = $this->setParams($params);
+    $params = $this->beginDoPayment($params);
 
     if (!empty($params['is_recur']) && !empty($params['contributionRecurID'])) {
       $this->doRecurPayment();
@@ -183,7 +181,7 @@ abstract class CRM_Core_Payment_AuthorizeNetCommon extends CRM_Core_Payment {
         $this->handleError(NULL, 'No transaction response returned', $params['error_url']);
       }
 
-      $contributionParams['trxn_id'] = $tresponse->getTransId();
+      $this->setPaymentProcessorInvoiceID($tresponse->getTransId());
 
       switch ($tresponse->getResponseCode()) {
         case self::RESPONSECODE_APPROVED:
@@ -237,18 +235,7 @@ abstract class CRM_Core_Payment_AuthorizeNetCommon extends CRM_Core_Payment {
       $this->handleError($errorCode, $errorMessage, $params['error_url']);
     }
 
-    if ($this->getContributionId($params)) {
-      $contributionParams['id'] = $this->getContributionId($params);
-      civicrm_api3('Contribution', 'create', $contributionParams);
-      unset($contributionParams['id']);
-    }
-    $params = array_merge($params, $contributionParams);
-
-    // We need to set this to ensure that contributions are set to the correct status
-    if (!empty($params['contribution_status_id'])) {
-      $params['payment_status_id'] = $params['contribution_status_id'];
-    }
-    return $params;
+    return $this->endDoPayment($params);
   }
 
   /**

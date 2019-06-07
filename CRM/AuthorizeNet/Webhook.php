@@ -7,15 +7,7 @@ use \JohnConde\Authnet\AuthnetApiFactory as AuthnetApiFactory;
 class CRM_AuthorizeNet_Webhook {
 
   use CRM_AuthorizeNet_WebhookTrait;
-
-  /**
-   * Get the constant for test/live mode when using JohnConde\Authnet library
-   *
-   * @return int
-   */
-  protected function getIsTestMode() {
-    return isset($this->_paymentProcessor['is_test']) && $this->_paymentProcessor['is_test'] ? AuthnetApiFactory::USE_DEVELOPMENT_SERVER : AuthnetApiFactory::USE_PRODUCTION_SERVER;
-  }
+  use CRM_Core_Payment_AuthorizeNetTrait;
 
   /**
    * CRM_AuthorizeNet_Webhook constructor.
@@ -26,20 +18,76 @@ class CRM_AuthorizeNet_Webhook {
     $this->_paymentProcessor = $paymentProcessor;
   }
 
+  /**
+   * Get a request handler for authnet webhooks
+   *
+   * @return \JohnConde\Authnet\AuthnetWebhooksRequest
+   * @throws \ErrorException
+   * @throws \JohnConde\Authnet\AuthnetInvalidCredentialsException
+   * @throws \JohnConde\Authnet\AuthnetInvalidServerException
+   */
   public function getRequest() {
     return AuthnetApiFactory::getWebhooksHandler(
       CRM_Core_Payment_AuthorizeNetCommon::getApiLoginId($this->_paymentProcessor),
       CRM_Core_Payment_AuthorizeNetCommon::getTransactionKey($this->_paymentProcessor),
-      $this->getIsTestMode());
+      $this->getIsTestMode() ? AuthnetApiFactory::USE_DEVELOPMENT_SERVER : AuthnetApiFactory::USE_PRODUCTION_SERVER);
   }
+
+  /**
+   * Get a list of configured webhooks
+   *
+   * @return \JohnConde\Authnet\AuthnetWebhooksResponse
+   * @throws \ErrorException
+   * @throws \JohnConde\Authnet\AuthnetCurlException
+   * @throws \JohnConde\Authnet\AuthnetInvalidCredentialsException
+   * @throws \JohnConde\Authnet\AuthnetInvalidJsonException
+   * @throws \JohnConde\Authnet\AuthnetInvalidServerException
+   */
   public function getWebhooks() {
     $request = $this->getRequest();
     return $request->getWebhooks();
   }
 
+  /**
+   * Create a new webhook
+   *
+   * @throws \ErrorException
+   * @throws \JohnConde\Authnet\AuthnetCurlException
+   * @throws \JohnConde\Authnet\AuthnetInvalidCredentialsException
+   * @throws \JohnConde\Authnet\AuthnetInvalidJsonException
+   * @throws \JohnConde\Authnet\AuthnetInvalidServerException
+   */
   public function createWebhook() {
     $request = $this->getRequest();
-    $request->createWebhooks(self::getDefaultEnabledEvents(), self::getWebhookPath(TRUE, $this->_paymentProcessor['id']), 'active');
+    $request->createWebhooks(self::getDefaultEnabledEvents(), self::getWebhookPath($this->_paymentProcessor['id']), 'active');
+  }
+
+  /**
+   * Check and update existing webhook
+   *
+   * @param array $webhook
+   */
+  /**
+   * @param \JohnConde\Authnet\AuthnetWebhooksResponse $webhook
+   *
+   * @throws \ErrorException
+   * @throws \JohnConde\Authnet\AuthnetCurlException
+   * @throws \JohnConde\Authnet\AuthnetInvalidCredentialsException
+   * @throws \JohnConde\Authnet\AuthnetInvalidJsonException
+   * @throws \JohnConde\Authnet\AuthnetInvalidServerException
+   */
+  public function checkAndUpdateWebhook($webhook) {
+    $update = FALSE;
+    if ($webhook->getStatus() !== 'active') {
+      $update = TRUE;
+    }
+    if (array_diff(self::getDefaultEnabledEvents(), $webhook->getEventTypes())) {
+      $update = TRUE;
+    }
+    if ($update) {
+      $request = $this->getRequest();
+      $request->updateWebhook([$webhook->getWebhooksId()], self::getWebhookPath($this->_paymentProcessor['id']), self::getDefaultEnabledEvents(),'active');
+    }
   }
 
   /**
@@ -48,6 +96,14 @@ class CRM_AuthorizeNet_Webhook {
    * for now, avoid having false alerts that will annoy people).
    *
    * @see hook_civicrm_check()
+   *
+   * @return array
+   * @throws \CiviCRM_API3_Exception
+   * @throws \ErrorException
+   * @throws \JohnConde\Authnet\AuthnetCurlException
+   * @throws \JohnConde\Authnet\AuthnetInvalidCredentialsException
+   * @throws \JohnConde\Authnet\AuthnetInvalidJsonException
+   * @throws \JohnConde\Authnet\AuthnetInvalidServerException
    */
   public static function check() {
     $checkMessage = [
@@ -60,10 +116,11 @@ class CRM_AuthorizeNet_Webhook {
     ]);
 
     foreach ($result['values'] as $paymentProcessor) {
-      $webhook_path = self::getWebhookPath(TRUE, $paymentProcessor['id']);
+      $webhook_path = self::getWebhookPath($paymentProcessor['id']);
 
       try {
         $webhookHandler = new CRM_AuthorizeNet_Webhook($paymentProcessor);
+        /** @var JohnConde\Authnet\AuthnetWebhooksResponse $webhooks */
         $webhooks = $webhookHandler->getWebhooks();
       }
       catch (Exception $e) {
@@ -83,18 +140,18 @@ class CRM_AuthorizeNet_Webhook {
         continue;
       }
 
-      $found_wh = FALSE;
-      foreach ($webhooks->data as $wh) {
-        if ($wh->url == $webhook_path) {
-          $found_wh = TRUE;
+      $foundWebhook = FALSE;
+      foreach ($webhooks->getWebhooks() as $webhook) {
+        if ($webhook->getURL() == $webhook_path) {
+          $foundWebhook = TRUE;
           // Check and update webhook
-          $webhookHandler->checkAndUpdateWebhook($wh);
+          $webhookHandler->checkAndUpdateWebhook($webhook);
         }
       }
 
-      if (!$found_wh) {
+      if (!$foundWebhook) {
         try {
-          $webhookHandler->createWebhook($paymentProcessor['id']);
+          $webhookHandler->createWebhook();
         }
         catch (Exception $e) {
           $messages[] = new CRM_Utils_Check_Message(
@@ -123,13 +180,22 @@ class CRM_AuthorizeNet_Webhook {
    * @return array
    */
   public static function getDefaultEnabledEvents() {
+    // See https://developer.authorize.net/api/reference/features/webhooks.html#Event_Types_and_Payloads
     return [
-      'net.authorize.payment.authorization.created',
-      'net.authorize.payment.capture.created',
-      'net.authorize.payment.authcapture.created',
-      'net.authorize.payment.priorAuthCapture.created',
-      'net.authorize.payment.refund.created',
-      'net.authorize.payment.void.created'
+      'net.authorize.payment.authcapture.created', // Notifies you that an authorization and capture transaction was created.
+      'net.authorize.payment.refund.created', // Notifies you that a successfully settled transaction was refunded.
+      'net.authorize.payment.void.created', // Notifies you that an unsettled transaction was voided.
+
+      //'net.authorize.customer.subscription.created', // Notifies you that a subscription was created.
+      //'net.authorize.customer.subscription.updated', // Notifies you that a subscription was updated.
+      //'net.authorize.customer.subscription.suspended',// Notifies you that a subscription was suspended.
+      'net.authorize.customer.subscription.terminated',// Notifies you that a subscription was terminated.
+      'net.authorize.customer.subscription.cancelled', // Notifies you that a subscription was cancelled.
+      //'net.authorize.customer.subscription.expiring', // Notifies you when a subscription has only one recurrence left to be charged.
+
+      'net.authorize.payment.fraud.held', // Notifies you that a transaction was held as suspicious.
+      'net.authorize.payment.fraud.approved', // Notifies you that a previously held transaction was approved.
+      'net.authorize.payment.fraud.declined', // Notifies you that a previously held transaction was declined.
     ];
   }
 
