@@ -1,4 +1,7 @@
 <?php
+/**
+ * https://civicrm.org/licensing
+ */
 
 use CRM_AuthNetEcheck_ExtensionUtil as E;
 use net\authorize\api\contract\v1 as AnetAPI;
@@ -14,6 +17,10 @@ abstract class CRM_Core_Payment_AuthorizeNetCommon extends CRM_Core_Payment {
   const RESPONSECODE_ERROR = 3;
   const RESPONSECODE_REVIEW = 4;
 
+  /**
+   * @fixme: Confirm that this is the correct "timezone" - we copied this from the original core Authorize.net processor.
+   * @var string
+   */
   const TIMEZONE = 'America/Denver';
 
   /**

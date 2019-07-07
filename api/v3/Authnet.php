@@ -1,4 +1,7 @@
 <?php
+/**
+ * https://civicrm.org/licensing
+ */
 
 /**
  * Test API functions for AuthNet

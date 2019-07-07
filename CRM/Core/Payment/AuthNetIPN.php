@@ -8,7 +8,6 @@ use \JohnConde\Authnet\AuthnetWebhook as AuthnetWebhook;
 use \JohnConde\Authnet\AuthnetApiFactory as AuthnetApiFactory;
 use \JohnConde\Authnet\AuthnetWebhooksResponse as AuthnetWebhooksResponse;
 
-
 class CRM_Core_Payment_AuthNetIPN extends CRM_Core_Payment_BaseIPN {
 
   use CRM_Core_Payment_AuthorizeNetTrait;

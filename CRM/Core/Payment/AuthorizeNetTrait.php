@@ -9,7 +9,7 @@
 
 trait CRM_Core_Payment_AuthorizeNetTrait {
   /**********************
-   * MJW_Core_Payment_Trait: 20190706
+   * MJW_Core_Payment_Trait: 20190707
    *********************/
 
   /**

@@ -1,4 +1,7 @@
 <?php
+/**
+ * https://civicrm.org/licensing
+ */
 
 require_once 'authnetecheck.civix.php';
 require_once __DIR__.'/vendor/autoload.php';

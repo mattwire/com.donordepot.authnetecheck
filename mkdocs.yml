@@ -1,0 +1,18 @@
+site_name: Authorize.net Payment Processor (https://www.authorize.net/)
+repo_url: https://github.com/mattwire/com.donordepot.authnetecheck
+theme: material
+markdown_extensions:
+  - attr_list
+  - admonition
+  - def_list
+  - codehilite
+  - toc(permalink=true)
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+  - pymdownx.tilde
+  - pymdownx.betterem
+  - pymdownx.mark
+
+pages:
+- About: index.md
+- Release Notes: release/release_notes.md

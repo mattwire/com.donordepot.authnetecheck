@@ -12,14 +12,14 @@
     <author>Matthew Wire</author>
     <email>mjw@mjwconsult.co.uk</email>
   </maintainer>
-  <releaseDate>2019-05-31</releaseDate>
+  <releaseDate>2019-07-07</releaseDate>
   <version>2.0</version>
-  <develStage>beta</develStage>
+  <develStage>stable</develStage>
   <compatibility>
     <ver>5.13</ver>
   </compatibility>
   <civix>
     <namespace>CRM/AuthNetEcheck</namespace>
   </civix>
-  <comments>echeck.net originally developed by Donor Depot (donordepot.com)</comments>
+  <comments>echeck.net originally developed by Donor Depot (donordepot.com). Rewritten by MJW Consulting in 2019.</comments>
 </extension>

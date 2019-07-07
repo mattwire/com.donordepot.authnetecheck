@@ -1,4 +1,7 @@
 <?php
+/**
+ * https://civicrm.org/licensing
+ */
 
 use CRM_AuthNetEcheck_ExtensionUtil as E;
 use net\authorize\api\contract\v1 as AnetAPI;
