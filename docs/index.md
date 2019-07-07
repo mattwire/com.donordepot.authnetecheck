@@ -2,6 +2,8 @@
 
 CiviCRM Extension that provides support for Authorize.Net payments using Credit Card and echeck (EFT).
 
+![Screenshot](/images/authnet_preview.png)
+
 ## Features
 
 * Provides a New Payment Processor for eCheck.Net/Credit Card based on Authorize.Net API (AIM Method)
