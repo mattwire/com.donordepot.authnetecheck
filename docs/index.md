@@ -27,9 +27,6 @@ CiviCRM Extension that provides support for Authorize.Net payments using Credit 
 
 Webhooks are configured automatically when a payment processor is created.
 
-## License
-This software is licensed under the GNU General Public License 3 (GNU GPL 3)
-
 ## Development
 
 * Webhooks based on stymiee/authnetjson library - http://www.johnconde.net/blog/handling-authorize-net-webhooks-with-php/

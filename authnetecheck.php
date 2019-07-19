@@ -128,5 +128,5 @@ function authnetecheck_civicrm_alterSettingsFolders(&$metaDataFolders = NULL) {
  * Implements hook_civicrm_check().
  */
 function authnetecheck_civicrm_check(&$messages) {
-  $messages = CRM_AuthorizeNet_Webhook::check();
+  CRM_AuthorizeNet_Webhook::check($messages);
 }

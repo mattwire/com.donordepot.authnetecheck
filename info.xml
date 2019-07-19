@@ -7,13 +7,13 @@
     <url desc="Main Extension Page">https://github.com/mattwire/com.donordepot.authnetecheck</url>
     <url desc="Licensing">http://civicrm.org/licensing</url>
   </urls>
-  <license>GPL-3.0</license>
+  <license>AGPL-3.0</license>
   <maintainer>
     <author>Matthew Wire</author>
     <email>mjw@mjwconsult.co.uk</email>
   </maintainer>
-  <releaseDate>2019-07-07</releaseDate>
-  <version>2.0</version>
+  <releaseDate>2019-07-19</releaseDate>
+  <version>2.0.1</version>
   <develStage>stable</develStage>
   <compatibility>
     <ver>5.13</ver>

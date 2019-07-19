@@ -1,3 +1,6 @@
+## Release 2.0.1
+* Don't overwrite system messages when performing webhook checks.
+
 ## Release 2.0
 Implemented Authorize.net Credit Card processor.  This replaces the CiviCRM Core "Authorize.net" processor.
 

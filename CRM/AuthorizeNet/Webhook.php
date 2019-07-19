@@ -100,15 +100,13 @@ class CRM_AuthorizeNet_Webhook {
    *
    * @see hook_civicrm_check()
    *
+   * @param array $messages
+   *
    * @return array
    * @throws \CiviCRM_API3_Exception
-   * @throws \ErrorException
-   * @throws \JohnConde\Authnet\AuthnetCurlException
-   * @throws \JohnConde\Authnet\AuthnetInvalidCredentialsException
    * @throws \JohnConde\Authnet\AuthnetInvalidJsonException
-   * @throws \JohnConde\Authnet\AuthnetInvalidServerException
    */
-  public static function check() {
+  public static function check($messages) {
     $checkMessage = [
       'name' => 'authnet_webhook',
       'label' => 'AuthorizeNet',
@@ -145,10 +143,29 @@ class CRM_AuthorizeNet_Webhook {
 
       $foundWebhook = FALSE;
       foreach ($webhooks->getWebhooks() as $webhook) {
-        if ($webhook->getURL() == $webhook_path) {
-          $foundWebhook = TRUE;
-          // Check and update webhook
-          $webhookHandler->checkAndUpdateWebhook($webhook);
+        try {
+          if ($webhook->getURL() == $webhook_path) {
+            $foundWebhook = TRUE;
+            // Check and update webhook
+            $webhookHandler->checkAndUpdateWebhook($webhook);
+          }
+        }
+        catch (Exception $e) {
+          $messages[] = new CRM_Utils_Check_Message(
+            "{$checkMessage['name']}_webhook",
+            E::ts('Could not update webhook. You can review from your account dashboard.<br/>The webhook URL is: %3', [
+              1 => $paymentProcessor['name'],
+              2 => $paymentProcessor['id'],
+              3 => urldecode($webhook_path),
+            ]) . ".<br/>Error from {$checkMessage['label']}: <em>" . $e->getMessage() . '</em>',
+            "{$checkMessage['label']} " . E::ts('Webhook: %1 (%2)', [
+                1 => $paymentProcessor['name'],
+                2 => $paymentProcessor['id'],
+              ]
+            ),
+            \Psr\Log\LogLevel::WARNING,
+            'fa-money'
+          );
         }
       }
 
@@ -175,7 +192,6 @@ class CRM_AuthorizeNet_Webhook {
         }
       }
     }
-    return $messages;
   }
 
   /**

@@ -4,6 +4,8 @@ CiviCRM Extension that provides support for Authorize.Net payments using Credit 
 
 ![Screenshot](/docs/images/authnet_preview.png)
 
+The extension is licensed under [AGPL-3.0](LICENSE.txt).
+
 ## Documentation
 
 See: https://docs.civicrm.org/authorizenet (Once published)
